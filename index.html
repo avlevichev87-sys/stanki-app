@@ -62,7 +62,7 @@
 <script>
 (function () {
   // !!! ВСТАВЬТЕ СЮДА ССЫЛКУ ВАШЕГО APPS SCRIPT WEB APP (заканчивается на /exec) !!!
-  var API_URL = 'https://script.google.com/macros/s/AKfycbwp7LpPuphMwElBibGKx1lVXhsDgtdZboeGiIR8UB8cf-IGSkZ7hBJ472PzPvMcaBGYCA/exec';
+  var API_URL = 'ВСТАВЬТЕ_СЮДА_ВАШ_EXEC_URL';
 
   var tg = window.Telegram && window.Telegram.WebApp;
   if (tg) { tg.ready(); tg.expand(); }
@@ -111,6 +111,16 @@
       return;
     }
     call('authenticate').then(function (data) {
+      if (data.pending) {
+        app.innerHTML =
+          '<div style="text-align:center;padding:32px 12px;">' +
+          '<div style="font-size:40px;margin-bottom:12px;">⏳</div>' +
+          '<div style="font-size:16px;font-weight:600;margin-bottom:10px;">Ваша заявка на рассмотрении</div>' +
+          '<div style="color:var(--hint);font-size:14px;margin-bottom:16px;">Администратор получил уведомление и скоро подтвердит доступ.</div>' +
+          '<div style="background:var(--secondary-bg);border-radius:10px;padding:10px;font-size:13px;">Ваш Telegram ID:<br><b style="font-size:16px;">' + escapeHtml(data.telegramId) + '</b></div>' +
+          '</div>';
+        return;
+      }
       state.role = data.role;
       state.fullName = data.fullName;
       state.telegramId = data.telegramId;
