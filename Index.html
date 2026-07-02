@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>База станков</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --text: var(--tg-theme-text-color, #1a1a1a);
+    --hint: var(--tg-theme-hint-color, #8a8a8a);
+    --link: var(--tg-theme-link-color, #2481cc);
+    --button: var(--tg-theme-button-color, #2481cc);
+    --button-text: var(--tg-theme-button-text-color, #ffffff);
+    --secondary-bg: var(--tg-theme-secondary-bg-color, #f0f0f0);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    font-family: -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  #app { padding: 12px 16px 32px; }
+  .header { display: flex; justify-content: space-between; align-items: center; padding: 8px 0 12px; }
+  .role { color: var(--hint); font-size: 13px; }
+  .tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 12px; -webkit-overflow-scrolling: touch; }
+  .tab-btn {
+    flex: 0 0 auto; padding: 8px 14px; border-radius: 20px; border: none;
+    background: var(--secondary-bg); color: var(--text); font-size: 14px;
+  }
+  .tab-btn.active { background: var(--button); color: var(--button-text); }
+  .card { background: var(--secondary-bg); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
+  .card-title { font-weight: 600; margin-bottom: 4px; }
+  .card-sub { font-size: 13px; color: var(--hint); }
+  .empty, .loading, .error { color: var(--hint); text-align: center; padding: 24px 0; }
+  .error { color: #e53935; }
+  .btn-primary {
+    display: block; width: 100%; padding: 12px; margin: 10px 0; border: none; border-radius: 10px;
+    background: var(--button); color: var(--button-text); font-size: 15px; font-weight: 600;
+  }
+  .btn-back { background: none; border: none; color: var(--link); padding: 8px 0; font-size: 14px; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 13px; color: var(--hint); margin-bottom: 4px; }
+  .field input, .field textarea, .field select {
+    width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--secondary-bg);
+    background: var(--secondary-bg); color: var(--text); font-size: 14px; font-family: inherit;
+  }
+  .field textarea { min-height: 70px; resize: vertical; }
+  .detail-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--secondary-bg); font-size: 14px; }
+  .detail-label { color: var(--hint); flex: 0 0 auto; }
+  .photo-preview { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .photo-chip { background: var(--secondary-bg); padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+  .role-select { display: inline-block; width: auto; margin-top: 4px; }
+  h2 { font-size: 18px; margin: 8px 0 14px; }
+  h3 { font-size: 15px; margin: 18px 0 8px; color: var(--hint); }
+</style>
+</head>
+<body>
+  <div id="app"><div class="loading">Загрузка...</div></div>
+
+<script>
+(function () {
+  // !!! ВСТАВЬТЕ СЮДА ССЫЛКУ ВАШЕГО APPS SCRIPT WEB APP (заканчивается на /exec) !!!
+  var API_URL = 'https://script.google.com/macros/s/AKfycbwp7LpPuphMwElBibGKx1lVXhsDgtdZboeGiIR8UB8cf-IGSkZ7hBJ472PzPvMcaBGYCA/exec';
+
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+  var initData = tg ? tg.initData : '';
+
+  var state = { role: null, fullName: null, permissions: {}, telegramId: null };
+  var app = document.getElementById('app');
+
+  // Вызов серверной функции Apps Script через fetch (обычный JSON API, без iframe-песочницы)
+  function call(fnName) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    return fetch(API_URL, {
+      method: 'POST',
+      // Content-Type: text/plain специально, чтобы браузер не слал предварительный CORS-запрос (preflight),
+      // который Apps Script по умолчанию не обрабатывает.
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: fnName, args: [initData].concat(args) })
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (res && res.success) return res.data;
+        throw new Error((res && res.error) || 'Неизвестная ошибка');
+      });
+  }
+
+  function can(action) {
+    return state.role === 'Создатель' || !!state.permissions[action];
+  }
+
+  function init() {
+    if (API_URL.indexOf('ВСТАВЬТЕ') === 0) {
+      app.innerHTML = '<div class="error">Разработчик не указал API_URL в app-static.html</div>';
+      return;
+    }
+    if (!initData) {
+      var debugInfo =
+        'Telegram.WebApp объект: ' + (tg ? 'есть' : 'НЕТ') + '<br>' +
+        'initData: ' + (initData === '' ? 'пустая строка' : String(initData)) + '<br>' +
+        'platform: ' + (tg ? tg.platform : '-') + '<br>' +
+        'version: ' + (tg ? tg.version : '-') + '<br>' +
+        'URL: ' + window.location.href;
+      app.innerHTML =
+        '<div class="error">Откройте приложение через Telegram-бота.</div>' +
+        '<div style="font-size:11px;color:var(--hint);margin-top:16px;word-break:break-all;padding:10px;background:var(--secondary-bg);border-radius:8px;">' +
+        '<b>Диагностика:</b><br>' + debugInfo + '</div>';
+      return;
+    }
+    call('authenticate').then(function (data) {
+      state.role = data.role;
+      state.fullName = data.fullName;
+      state.telegramId = data.telegramId;
+      state.permissions = data.permissions;
+      renderShell();
+    }).catch(function (err) {
+      app.innerHTML = '<div class="error">Ошибка входа: ' + escapeHtml(err.message || err) + '</div>';
+    });
+  }
+
+  function renderShell() {
+    var tabs = [];
+    if (can('equipment.view')) tabs.push(['equipment', 'Станки']);
+    if (can('reports.view')) tabs.push(['reports', 'Отчеты']);
+    if (can('parts.view')) tabs.push(['parts', 'Запчасти']);
+    if (can('users.view')) tabs.push(['users', 'Пользователи']);
+
+    app.innerHTML =
+      '<div class="header"><div>' + escapeHtml(state.fullName) + ' <span class="role">(' + escapeHtml(state.role) + ')</span></div></div>' +
+      '<div class="tabs">' + tabs.map(function (t) {
+        return '<button class="tab-btn" data-tab="' + t[0] + '">' + t[1] + '</button>';
+      }).join('') + '</div>' +
+      '<div id="content"></div>';
+
+    Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function (btn) {
+      btn.addEventListener('click', function () { setTab(btn.dataset.tab); });
+    });
+    setTab(tabs.length ? tabs[0][0] : null);
+  }
+
+  function setTab(tab) {
+    Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function (btn) {
+      btn.classList.toggle('active', btn.dataset.tab === tab);
+    });
+    if (tab === 'equipment') renderEquipment();
+    else if (tab === 'reports') renderReports();
+    else if (tab === 'parts') renderParts();
+    else if (tab === 'users') renderUsers();
+  }
+
+  // ---------- Станки ----------
+  function renderEquipment() {
+    var content = document.getElementById('content');
+    content.innerHTML = '<div class="loading">Загрузка...</div>';
+    call('getEquipmentList').then(function (list) {
+      var html = '';
+      if (can('equipment.create')) html += '<button class="btn-primary" id="add-eq">+ Добавить станок</button>';
+      html += '<div class="list">' + (list.length ? list.map(renderEquipmentCard).join('') : '<div class="empty">Станков пока нет</div>') + '</div>';
+      content.innerHTML = html;
+      if (can('equipment.create')) document.getElementById('add-eq').addEventListener('click', function () { openEquipmentForm(null); });
+      Array.prototype.forEach.call(document.querySelectorAll('.eq-card'), function (card) {
+        card.addEventListener('click', function () { openEquipmentDetail(card.dataset.id); });
+      });
+    }).catch(showError);
+  }
+
+  function renderEquipmentCard(e) {
+    return '<div class="card eq-card" data-id="' + escapeHtml(e['ID станка']) + '">' +
+      '<div class="card-title">' + escapeHtml(e['Тип оборудования'] || '') + ' — ' + escapeHtml(e['Модель'] || '') + '</div>' +
+      '<div class="card-sub">Инв. № ' + escapeHtml(e['Инвентарный номер'] || '-') + ' · ' + escapeHtml(e['Статус'] || '') + '</div>' +
+      '<div class="card-sub">' + escapeHtml(e['Заказчик'] || '') + '</div>' +
+      '</div>';
+  }
+
+  function openEquipmentDetail(id) {
+    call('getEquipmentList').then(function (list) {
+      var eq = list.find(function (e) { return String(e['ID станка']) === String(id); });
+      if (!eq) return showError(new Error('Станок не найден'));
+      var content = document.getElementById('content');
+      content.innerHTML =
+        '<button class="btn-back">← Назад</button>' +
+        '<h2>' + escapeHtml(eq['Тип оборудования']) + ' ' + escapeHtml(eq['Модель']) + '</h2>' +
+        detailRow('Инвентарный №', eq['Инвентарный номер']) +
+        detailRow('Год выпуска', eq['Год выпуска']) +
+        detailRow('Завод', eq['Завод изготовитель']) +
+        detailRow('Статус', eq['Статус']) +
+        detailRow('Заказчик', eq['Заказчик']) +
+        detailRow('Контакт', eq['Контактное лицо']) +
+        detailRow('Адрес', eq['Адрес']) +
+        detailRow('Комментарий', eq['Комментарий']) +
+        detailRow('Ответственные', [eq['Ответственный 1'], eq['Ответственный 2'], eq['Ответственный 3']].filter(Boolean).join(', ')) +
+        (can('equipment.edit') ? '<button class="btn-primary" id="edit-eq">Редактировать</button>' : '') +
+        (can('reports.create') ? '<button class="btn-primary" id="add-report-eq">+ Отчет по станку</button>' : '') +
+        '<h3>Отчеты по станку</h3><div id="eq-reports" class="loading">Загрузка...</div>';
+
+      content.querySelector('.btn-back').addEventListener('click', renderEquipment);
+      if (can('equipment.edit')) document.getElementById('edit-eq').addEventListener('click', function () { openEquipmentForm(eq); });
+      if (can('reports.create')) document.getElementById('add-report-eq').addEventListener('click', function () { openReportForm(id); });
+
+      call('getReports', id).then(function (reports) {
+        document.getElementById('eq-reports').innerHTML = reports.length
+          ? reports.map(renderReportCard).join('')
+          : '<div class="empty">Отчетов пока нет</div>';
+      }).catch(showError);
+    }).catch(showError);
+  }
+
+  function openEquipmentForm(eq) {
+    var content = document.getElementById('content');
+    var f = eq || {};
+    content.innerHTML =
+      '<button class="btn-back">← Назад</button>' +
+      '<h2>' + (eq ? 'Редактирование станка' : 'Новый станок') + '</h2>' +
+      formField('invNumber', 'Инвентарный номер', f['Инвентарный номер']) +
+      formField('type', 'Тип оборудования', f['Тип оборудования']) +
+      formField('model', 'Модель', f['Модель']) +
+      formField('year', 'Год выпуска', f['Год выпуска']) +
+      formField('factory', 'Завод изготовитель', f['Завод изготовитель']) +
+      formField('status', 'Статус', f['Статус']) +
+      formField('customer', 'Заказчик', f['Заказчик']) +
+      formField('contact', 'Контактное лицо', f['Контактное лицо']) +
+      formField('address', 'Адрес', f['Адрес']) +
+      formField('comment', 'Комментарий', f['Комментарий'], true) +
+      formField('resp1', 'Ответственный 1 (ФИО)', f['Ответственный 1']) +
+      formField('resp2', 'Ответственный 2 (ФИО)', f['Ответственный 2']) +
+      formField('resp3', 'Ответственный 3 (ФИО)', f['Ответственный 3']) +
+      photoField('eq-photo') +
+      '<button class="btn-primary" id="save-eq">Сохранить</button>';
+
+    content.querySelector('.btn-back').addEventListener('click', function () {
+      eq ? openEquipmentDetail(eq['ID станка']) : renderEquipment();
+    });
+    setupPhotoField('eq-photo');
+
+    document.getElementById('save-eq').addEventListener('click', function () {
+      var data = collectForm(['invNumber', 'type', 'model', 'year', 'factory', 'status', 'customer', 'contact', 'address', 'comment', 'resp1', 'resp2', 'resp3']);
+      uploadPendingPhotos('eq-photo').then(function (fileIds) {
+        if (fileIds.length) data.photoFileIds = fileIds;
+        return eq ? call('updateEquipment', eq['ID станка'], data) : call('addEquipment', data);
+      }).then(renderEquipment).catch(showError);
+    });
+  }
+
+  // ---------- Отчеты ----------
+  function renderReports() {
+    var content = document.getElementById('content');
+    content.innerHTML = '<div class="loading">Загрузка...</div>';
+    call('getReports').then(function (list) {
+      content.innerHTML = '<div class="list">' + (list.length ? list.map(renderReportCard).join('') : '<div class="empty">Отчетов нет</div>') + '</div>';
+    }).catch(showError);
+  }
+
+  function renderReportCard(r) {
+    return '<div class="card">' +
+      '<div class="card-title">Станок ' + escapeHtml(r['ID Станка']) + ' · ' + escapeHtml(r['Статус'] || '') + '</div>' +
+      '<div class="card-sub">' + escapeHtml(r['Дата проведения работ'] || '') + ' — ' + escapeHtml(r['Кто заполнил'] || '') + '</div>' +
+      '<div class="card-sub">' + escapeHtml((r['Описание работ'] || '').slice(0, 140)) + '</div>' +
+      '</div>';
+  }
+
+  function openReportForm(equipmentId) {
+    var content = document.getElementById('content');
+    content.innerHTML =
+      '<button class="btn-back">← Назад</button>' +
+      '<h2>Новый отчет</h2>' +
+      formField('equipmentId', 'ID станка', equipmentId || '') +
+      formField('workDate', 'Дата проведения работ', '') +
+      formField('description', 'Описание работ', '', true) +
+      formField('ourParts', 'Наши запчасти', '', true) +
+      formField('customerParts', 'Запчасти заказчика', '', true) +
+      formField('neededNextTime', 'Что необходимо в следующий раз', '', true) +
+      formField('neededFuture', 'Что потребуется в дальнейшем', '', true) +
+      formField('plannedWork', 'Запланированные работы', '', true) +
+      formField('nextWorkDate', 'Дата следующих работ', '') +
+      formField('status', 'Статус', '') +
+      photoField('rep-photo') +
+      '<button class="btn-primary" id="save-report">Сохранить</button>';
+
+    content.querySelector('.btn-back').addEventListener('click', renderReports);
+    setupPhotoField('rep-photo');
+
+    document.getElementById('save-report').addEventListener('click', function () {
+      var data = collectForm(['equipmentId', 'workDate', 'description', 'ourParts', 'customerParts', 'neededNextTime', 'neededFuture', 'plannedWork', 'nextWorkDate', 'status']);
+      uploadPendingPhotos('rep-photo').then(function (fileIds) {
+        if (fileIds.length) data.photoFileIds = fileIds;
+        return call('addReport', data);
+      }).then(renderReports).catch(showError);
+    });
+  }
+
+  // ---------- Запчасти ----------
+  function renderParts() {
+    var content = document.getElementById('content');
+    content.innerHTML = '<div class="loading">Загрузка...</div>';
+    call('getParts').then(function (list) {
+      var html = '';
+      if (can('parts.create')) html += '<button class="btn-primary" id="add-part">+ Заявка на запчасть</button>';
+      html += '<div class="list">' + (list.length ? list.map(function (p) {
+        return '<div class="card"><div class="card-title">' + escapeHtml(p['Наименование']) + ' × ' + escapeHtml(p['Количество']) + '</div>' +
+          '<div class="card-sub">Станок ' + escapeHtml(p['ID станка'] || '') + ' · ' + escapeHtml(p['Адрес'] || '') + '</div></div>';
+      }).join('') : '<div class="empty">Заявок нет</div>') + '</div>';
+      content.innerHTML = html;
+      if (can('parts.create')) document.getElementById('add-part').addEventListener('click', openPartForm);
+    }).catch(showError);
+  }
+
+  function openPartForm() {
+    var content = document.getElementById('content');
+    content.innerHTML =
+      '<button class="btn-back">← Назад</button>' +
+      '<h2>Заявка на запчасть</h2>' +
+      formField('name', 'Наименование', '') +
+      formField('qty', 'Количество', '') +
+      formField('equipmentId', 'ID станка', '') +
+      formField('address', 'Адрес', '') +
+      '<button class="btn-primary" id="save-part">Сохранить</button>';
+    content.querySelector('.btn-back').addEventListener('click', renderParts);
+    document.getElementById('save-part').addEventListener('click', function () {
+      var data = collectForm(['name', 'qty', 'equipmentId', 'address']);
+      call('addPart', data).then(renderParts).catch(showError);
+    });
+  }
+
+  // ---------- Пользователи ----------
+  function renderUsers() {
+    var content = document.getElementById('content');
+    content.innerHTML = '<div class="loading">Загрузка...</div>';
+    call('getUsers').then(function (list) {
+      var html = '';
+      if (can('users.create')) html += '<button class="btn-primary" id="add-user">+ Пользователь</button>';
+      html += '<div class="list">' + list.map(function (u) {
+        return '<div class="card"><div class="card-title">' + escapeHtml(u['ФИО']) + '</div>' +
+          '<div class="card-sub">ID ' + escapeHtml(u['Telegram ID']) + '</div>' +
+          '<select class="role-select" data-id="' + escapeHtml(u['Telegram ID']) + '" ' + (can('users.edit_role') ? '' : 'disabled') + '>' +
+          ['Создатель', 'Админ', 'Мастер'].map(function (r) {
+            return '<option value="' + r + '"' + (r === u['Роль'] ? ' selected' : '') + '>' + r + '</option>';
+          }).join('') + '</select></div>';
+      }).join('') + '</div>';
+      content.innerHTML = html;
+      if (can('users.create')) document.getElementById('add-user').addEventListener('click', openUserForm);
+      Array.prototype.forEach.call(document.querySelectorAll('.role-select'), function (sel) {
+        sel.addEventListener('change', function () {
+          call('updateUserRole', sel.dataset.id, sel.value).catch(showError);
+        });
+      });
+    }).catch(showError);
+  }
+
+  function openUserForm() {
+    var content = document.getElementById('content');
+    content.innerHTML =
+      '<button class="btn-back">← Назад</button>' +
+      '<h2>Новый пользователь</h2>' +
+      formField('telegramId', 'Telegram ID', '') +
+      formField('fullName', 'ФИО', '') +
+      '<div class="field"><label>Роль</label><select id="f-role">' +
+      ['Админ', 'Мастер'].map(function (r) { return '<option value="' + r + '">' + r + '</option>'; }).join('') +
+      '</select></div>' +
+      '<button class="btn-primary" id="save-user">Сохранить</button>';
+    content.querySelector('.btn-back').addEventListener('click', renderUsers);
+    document.getElementById('save-user').addEventListener('click', function () {
+      var data = collectForm(['telegramId', 'fullName']);
+      data.role = document.getElementById('f-role').value;
+      call('addUser', data).then(renderUsers).catch(showError);
+    });
+  }
+
+  // ---------- Общие хелперы UI ----------
+  function formField(id, label, value, textarea) {
+    value = value == null ? '' : String(value);
+    return '<div class="field"><label>' + label + '</label>' +
+      (textarea ? '<textarea id="f-' + id + '">' + escapeHtml(value) + '</textarea>'
+        : '<input id="f-' + id + '" value="' + escapeHtml(value) + '">') + '</div>';
+  }
+
+  function detailRow(label, value) {
+    return '<div class="detail-row"><span class="detail-label">' + label + '</span><span>' + escapeHtml(value || '-') + '</span></div>';
+  }
+
+  function collectForm(ids) {
+    var data = {};
+    ids.forEach(function (id) { data[id] = document.getElementById('f-' + id).value; });
+    return data;
+  }
+
+  function photoField(fieldId) {
+    return '<div class="field"><label>Фото (опционально, хранятся в Telegram)</label>' +
+      '<input type="file" accept="image/*" multiple id="' + fieldId + '-input">' +
+      '<div class="photo-preview" id="' + fieldId + '-preview"></div></div>';
+  }
+
+  function setupPhotoField(fieldId) {
+    var input = document.getElementById(fieldId + '-input');
+    input._files = [];
+    input.addEventListener('change', function () {
+      input._files = Array.prototype.slice.call(input.files);
+      document.getElementById(fieldId + '-preview').innerHTML =
+        input._files.map(function (f) { return '<div class="photo-chip">' + escapeHtml(f.name) + '</div>'; }).join('');
+    });
+  }
+
+  function uploadPendingPhotos(fieldId) {
+    var input = document.getElementById(fieldId + '-input');
+    var files = (input && input._files) || [];
+    if (!files.length) return Promise.resolve([]);
+    return Promise.all(files.map(fileToUpload));
+  }
+
+  function fileToUpload(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var base64 = reader.result.split(',')[1];
+        call('uploadPhoto', base64, file.type, file.name).then(function (res) {
+          resolve(res.fileId);
+        }).catch(reject);
+      };
+      reader.onerror = function () { reject(new Error('Не удалось прочитать файл')); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function showError(err) {
+    var msg = String((err && err.message) || err);
+    if (tg && tg.showAlert) tg.showAlert(msg); else alert(msg);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
