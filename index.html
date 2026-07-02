@@ -52,6 +52,10 @@
   .photo-preview { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .photo-chip { background: var(--secondary-bg); padding: 4px 8px; border-radius: 6px; font-size: 12px; }
   .role-select { display: inline-block; width: auto; margin-top: 4px; }
+  .search-input {
+    width: 100%; padding: 10px 12px; border-radius: 20px; border: 1px solid var(--secondary-bg);
+    background: var(--secondary-bg); color: var(--text); font-size: 14px; margin-bottom: 10px;
+  }
   h2 { font-size: 18px; margin: 8px 0 14px; }
   h3 { font-size: 15px; margin: 18px 0 8px; color: var(--hint); }
 </style>
@@ -68,7 +72,7 @@
   if (tg) { tg.ready(); tg.expand(); }
   var initData = tg ? tg.initData : '';
 
-  var state = { role: null, fullName: null, permissions: {}, telegramId: null };
+  var state = { role: null, fullName: null, permissions: {}, telegramId: null, equipmentList: [], reportsList: [], partsList: [] };
   var app = document.getElementById('app');
 
   // Вызов серверной функции Apps Script через fetch (обычный JSON API, без iframe-песочницы)
@@ -161,38 +165,52 @@
     else if (tab === 'users') renderUsers();
   }
 
-  // ---------- Станки ----------
+  // ---------- Оборудование ----------
   function renderEquipment() {
     var content = document.getElementById('content');
     content.innerHTML = '<div class="loading">Загрузка...</div>';
     call('getEquipmentList').then(function (list) {
+      state.equipmentList = list;
       var html = '';
-      if (can('equipment.create')) html += '<button class="btn-primary" id="add-eq">+ Добавить станок</button>';
-      html += '<div class="list">' + (list.length ? list.map(renderEquipmentCard).join('') : '<div class="empty">Станков пока нет</div>') + '</div>';
+      if (can('equipment.create')) html += '<button class="btn-primary" id="add-eq">+ Добавить оборудование</button>';
+      html += '<input type="text" class="search-input" id="eq-search" placeholder="Поиск по оборудованию...">';
+      html += '<div class="list" id="eq-list"></div>';
       content.innerHTML = html;
       if (can('equipment.create')) document.getElementById('add-eq').addEventListener('click', function () { openEquipmentForm(null); });
-      Array.prototype.forEach.call(document.querySelectorAll('.eq-card'), function (card) {
-        card.addEventListener('click', function () { openEquipmentDetail(card.dataset.id); });
-      });
+
+      var searchFields = ['ID станка', 'Инвентарный номер', 'Наш номер', 'Тип оборудования', 'Модель', 'Завод изготовитель', 'Статус', 'Заказчик', 'Контактное лицо', 'Адрес', 'Комментарий'];
+      function renderList(query) {
+        var filtered = filterList(list, query, searchFields);
+        document.getElementById('eq-list').innerHTML = filtered.length
+          ? filtered.map(renderEquipmentCard).join('')
+          : '<div class="empty">Ничего не найдено</div>';
+        Array.prototype.forEach.call(document.querySelectorAll('.eq-card'), function (card) {
+          card.addEventListener('click', function () { openEquipmentDetail(card.dataset.id); });
+        });
+      }
+      document.getElementById('eq-search').addEventListener('input', function (e) { renderList(e.target.value); });
+      renderList('');
     }).catch(showError);
   }
 
   function renderEquipmentCard(e) {
     return '<div class="card eq-card" data-id="' + escapeHtml(e['ID станка']) + '">' +
       '<div class="card-title">' + escapeHtml(e['Тип оборудования'] || '') + ' — ' + escapeHtml(e['Модель'] || '') + '</div>' +
-      '<div class="card-sub">Инв. № ' + escapeHtml(e['Инвентарный номер'] || '-') + ' · ' + escapeHtml(e['Статус'] || '') + '</div>' +
+      '<div class="card-sub">Наш № ' + escapeHtml(e['Наш номер'] || '-') + ' · Инв. № ' + escapeHtml(e['Инвентарный номер'] || '-') + ' · ' + escapeHtml(e['Статус'] || '') + '</div>' +
       '<div class="card-sub">' + escapeHtml(e['Заказчик'] || '') + '</div>' +
       '</div>';
   }
 
   function openEquipmentDetail(id) {
     call('getEquipmentList').then(function (list) {
+      state.equipmentList = list;
       var eq = list.find(function (e) { return String(e['ID станка']) === String(id); });
       if (!eq) return showError(new Error('Станок не найден'));
       var content = document.getElementById('content');
       content.innerHTML =
         '<button class="btn-back">← Назад</button>' +
         '<h2>' + escapeHtml(eq['Тип оборудования']) + ' ' + escapeHtml(eq['Модель']) + '</h2>' +
+        detailRow('Наш номер', eq['Наш номер']) +
         detailRow('Инвентарный №', eq['Инвентарный номер']) +
         detailRow('Год выпуска', eq['Год выпуска']) +
         detailRow('Завод', eq['Завод изготовитель']) +
@@ -203,7 +221,7 @@
         detailRow('Комментарий', eq['Комментарий']) +
         detailRow('Ответственные', [eq['Ответственный 1'], eq['Ответственный 2'], eq['Ответственный 3']].filter(Boolean).join(', ')) +
         (can('equipment.edit') ? '<button class="btn-primary" id="edit-eq">Редактировать</button>' : '') +
-        (can('reports.create') ? '<button class="btn-primary" id="add-report-eq">+ Отчет по станку</button>' : '') +
+        (can('reports.create') ? '<button class="btn-primary" id="add-report-eq">+ Добавить отчет</button>' : '') +
         '<h3>Отчеты по станку</h3><div id="eq-reports" class="loading">Загрузка...</div>';
 
       content.querySelector('.btn-back').addEventListener('click', renderEquipment);
@@ -221,24 +239,36 @@
   function openEquipmentForm(eq) {
     var content = document.getElementById('content');
     var f = eq || {};
+    var list = state.equipmentList || [];
     content.innerHTML =
       '<button class="btn-back">← Назад</button>' +
-      '<h2>' + (eq ? 'Редактирование станка' : 'Новый станок') + '</h2>' +
-      formField('invNumber', 'Инвентарный номер', f['Инвентарный номер']) +
-      formField('type', 'Тип оборудования', f['Тип оборудования']) +
-      formField('model', 'Модель', f['Модель']) +
+      '<h2>' + (eq ? 'Редактирование оборудования' : 'Новое оборудование') + '</h2>' +
+      formField('invNumber', 'Инвентарный номер', f['Инвентарный номер'], false, 'dl-inv') +
+      formField('ourNumber', 'Наш номер', f['Наш номер'], false, 'dl-our') +
+      formField('type', 'Тип оборудования', f['Тип оборудования'], false, 'dl-type') +
+      formField('model', 'Модель', f['Модель'], false, 'dl-model') +
       formField('year', 'Год выпуска', f['Год выпуска']) +
-      formField('factory', 'Завод изготовитель', f['Завод изготовитель']) +
-      formField('status', 'Статус', f['Статус']) +
-      formField('customer', 'Заказчик', f['Заказчик']) +
-      formField('contact', 'Контактное лицо', f['Контактное лицо']) +
-      formField('address', 'Адрес', f['Адрес']) +
+      formField('factory', 'Завод изготовитель', f['Завод изготовитель'], false, 'dl-factory') +
+      formField('status', 'Статус', f['Статус'], false, 'dl-status') +
+      formField('customer', 'Заказчик', f['Заказчик'], false, 'dl-customer') +
+      formField('contact', 'Контактное лицо', f['Контактное лицо'], false, 'dl-contact') +
+      formField('address', 'Адрес', f['Адрес'], false, 'dl-address') +
       formField('comment', 'Комментарий', f['Комментарий'], true) +
-      formField('resp1', 'Ответственный 1 (ФИО)', f['Ответственный 1']) +
-      formField('resp2', 'Ответственный 2 (ФИО)', f['Ответственный 2']) +
-      formField('resp3', 'Ответственный 3 (ФИО)', f['Ответственный 3']) +
+      formField('resp1', 'Ответственный 1 (ФИО)', f['Ответственный 1'], false, 'dl-resp') +
+      formField('resp2', 'Ответственный 2 (ФИО)', f['Ответственный 2'], false, 'dl-resp') +
+      formField('resp3', 'Ответственный 3 (ФИО)', f['Ответственный 3'], false, 'dl-resp') +
       photoField('eq-photo') +
-      '<button class="btn-primary" id="save-eq">Сохранить</button>';
+      '<button class="btn-primary" id="save-eq">Сохранить</button>' +
+      buildDatalist('dl-inv', fieldValues(list, 'Инвентарный номер')) +
+      buildDatalist('dl-our', fieldValues(list, 'Наш номер')) +
+      buildDatalist('dl-type', fieldValues(list, 'Тип оборудования')) +
+      buildDatalist('dl-model', fieldValues(list, 'Модель')) +
+      buildDatalist('dl-factory', fieldValues(list, 'Завод изготовитель')) +
+      buildDatalist('dl-status', fieldValues(list, 'Статус')) +
+      buildDatalist('dl-customer', fieldValues(list, 'Заказчик')) +
+      buildDatalist('dl-contact', fieldValues(list, 'Контактное лицо')) +
+      buildDatalist('dl-address', fieldValues(list, 'Адрес')) +
+      buildDatalist('dl-resp', fieldValues(list, 'Ответственный 1').concat(fieldValues(list, 'Ответственный 2'), fieldValues(list, 'Ответственный 3')));
 
     content.querySelector('.btn-back').addEventListener('click', function () {
       eq ? openEquipmentDetail(eq['ID станка']) : renderEquipment();
@@ -246,7 +276,7 @@
     setupPhotoField('eq-photo');
 
     document.getElementById('save-eq').addEventListener('click', function () {
-      var data = collectForm(['invNumber', 'type', 'model', 'year', 'factory', 'status', 'customer', 'contact', 'address', 'comment', 'resp1', 'resp2', 'resp3']);
+      var data = collectForm(['invNumber', 'ourNumber', 'type', 'model', 'year', 'factory', 'status', 'customer', 'contact', 'address', 'comment', 'resp1', 'resp2', 'resp3']);
       uploadPendingPhotos('eq-photo').then(function (fileIds) {
         if (fileIds.length) data.photoFileIds = fileIds;
         return eq ? call('updateEquipment', eq['ID станка'], data) : call('addEquipment', data);
@@ -258,8 +288,26 @@
   function renderReports() {
     var content = document.getElementById('content');
     content.innerHTML = '<div class="loading">Загрузка...</div>';
-    call('getReports').then(function (list) {
-      content.innerHTML = '<div class="list">' + (list.length ? list.map(renderReportCard).join('') : '<div class="empty">Отчетов нет</div>') + '</div>';
+    Promise.all([call('getReports'), call('getEquipmentList')]).then(function (res) {
+      var list = res[0];
+      state.reportsList = list;
+      state.equipmentList = res[1];
+      var html = '';
+      if (can('reports.create')) html += '<button class="btn-primary" id="add-report">+ Добавить отчет</button>';
+      html += '<input type="text" class="search-input" id="rep-search" placeholder="Поиск по отчетам...">';
+      html += '<div class="list" id="rep-list"></div>';
+      content.innerHTML = html;
+      if (can('reports.create')) document.getElementById('add-report').addEventListener('click', function () { openReportForm(); });
+
+      var searchFields = ['ID Станка', 'Кто заполнил', 'Статус', 'Описание работ', 'Наши запчасти', 'Запчасти заказчика', 'Дата проведения работ'];
+      function renderList(query) {
+        var filtered = filterList(list, query, searchFields);
+        document.getElementById('rep-list').innerHTML = filtered.length
+          ? filtered.map(renderReportCard).join('')
+          : '<div class="empty">Ничего не найдено</div>';
+      }
+      document.getElementById('rep-search').addEventListener('input', function (e) { renderList(e.target.value); });
+      renderList('');
     }).catch(showError);
   }
 
@@ -273,21 +321,26 @@
 
   function openReportForm(equipmentId) {
     var content = document.getElementById('content');
+    var reports = state.reportsList || [];
     content.innerHTML =
       '<button class="btn-back">← Назад</button>' +
       '<h2>Новый отчет</h2>' +
-      formField('equipmentId', 'ID станка', equipmentId || '') +
+      formField('equipmentId', 'ID станка', equipmentId || '', false, 'dl-eq') +
       formField('workDate', 'Дата проведения работ', '') +
       formField('description', 'Описание работ', '', true) +
-      formField('ourParts', 'Наши запчасти', '', true) +
-      formField('customerParts', 'Запчасти заказчика', '', true) +
+      formField('ourParts', 'Наши запчасти', '', true, 'dl-ourparts') +
+      formField('customerParts', 'Запчасти заказчика', '', true, 'dl-custparts') +
       formField('neededNextTime', 'Что необходимо в следующий раз', '', true) +
       formField('neededFuture', 'Что потребуется в дальнейшем', '', true) +
       formField('plannedWork', 'Запланированные работы', '', true) +
       formField('nextWorkDate', 'Дата следующих работ', '') +
-      formField('status', 'Статус', '') +
+      formField('status', 'Статус', '', false, 'dl-repstatus') +
       photoField('rep-photo') +
-      '<button class="btn-primary" id="save-report">Сохранить</button>';
+      '<button class="btn-primary" id="save-report">Сохранить</button>' +
+      equipmentDatalist('dl-eq') +
+      buildDatalist('dl-ourparts', fieldValues(reports, 'Наши запчасти')) +
+      buildDatalist('dl-custparts', fieldValues(reports, 'Запчасти заказчика')) +
+      buildDatalist('dl-repstatus', fieldValues(reports, 'Статус'));
 
     content.querySelector('.btn-back').addEventListener('click', renderReports);
     setupPhotoField('rep-photo');
@@ -306,27 +359,41 @@
     var content = document.getElementById('content');
     content.innerHTML = '<div class="loading">Загрузка...</div>';
     call('getParts').then(function (list) {
+      state.partsList = list;
       var html = '';
       if (can('parts.create')) html += '<button class="btn-primary" id="add-part">+ Заявка на запчасть</button>';
-      html += '<div class="list">' + (list.length ? list.map(function (p) {
-        return '<div class="card"><div class="card-title">' + escapeHtml(p['Наименование']) + ' × ' + escapeHtml(p['Количество']) + '</div>' +
-          '<div class="card-sub">Станок ' + escapeHtml(p['ID станка'] || '') + ' · ' + escapeHtml(p['Адрес'] || '') + '</div></div>';
-      }).join('') : '<div class="empty">Заявок нет</div>') + '</div>';
+      html += '<input type="text" class="search-input" id="part-search" placeholder="Поиск по запчастям...">';
+      html += '<div class="list" id="part-list"></div>';
       content.innerHTML = html;
       if (can('parts.create')) document.getElementById('add-part').addEventListener('click', openPartForm);
+
+      var searchFields = ['Наименование', 'ID станка', 'Адрес'];
+      function renderList(query) {
+        var filtered = filterList(list, query, searchFields);
+        document.getElementById('part-list').innerHTML = filtered.length ? filtered.map(function (p) {
+          return '<div class="card"><div class="card-title">' + escapeHtml(p['Наименование']) + ' × ' + escapeHtml(p['Количество']) + '</div>' +
+            '<div class="card-sub">Станок ' + escapeHtml(p['ID станка'] || '') + ' · ' + escapeHtml(p['Адрес'] || '') + '</div></div>';
+        }).join('') : '<div class="empty">Ничего не найдено</div>';
+      }
+      document.getElementById('part-search').addEventListener('input', function (e) { renderList(e.target.value); });
+      renderList('');
     }).catch(showError);
   }
 
   function openPartForm() {
     var content = document.getElementById('content');
+    var parts = state.partsList || [];
     content.innerHTML =
       '<button class="btn-back">← Назад</button>' +
       '<h2>Заявка на запчасть</h2>' +
-      formField('name', 'Наименование', '') +
+      formField('name', 'Наименование', '', false, 'dl-partname') +
       formField('qty', 'Количество', '') +
-      formField('equipmentId', 'ID станка', '') +
-      formField('address', 'Адрес', '') +
-      '<button class="btn-primary" id="save-part">Сохранить</button>';
+      formField('equipmentId', 'ID станка', '', false, 'dl-eq2') +
+      formField('address', 'Адрес', '', false, 'dl-partaddr') +
+      '<button class="btn-primary" id="save-part">Сохранить</button>' +
+      buildDatalist('dl-partname', fieldValues(parts, 'Наименование')) +
+      equipmentDatalist('dl-eq2') +
+      buildDatalist('dl-partaddr', fieldValues(parts, 'Адрес'));
     content.querySelector('.btn-back').addEventListener('click', renderParts);
     document.getElementById('save-part').addEventListener('click', function () {
       var data = collectForm(['name', 'qty', 'equipmentId', 'address']);
@@ -379,11 +446,48 @@
   }
 
   // ---------- Общие хелперы UI ----------
-  function formField(id, label, value, textarea) {
+  function formField(id, label, value, textarea, listId) {
     value = value == null ? '' : String(value);
+    var listAttr = listId ? ' list="' + listId + '"' : '';
     return '<div class="field"><label>' + label + '</label>' +
       (textarea ? '<textarea id="f-' + id + '">' + escapeHtml(value) + '</textarea>'
-        : '<input id="f-' + id + '" value="' + escapeHtml(value) + '">') + '</div>';
+        : '<input id="f-' + id + '"' + listAttr + ' value="' + escapeHtml(value) + '" autocomplete="off">') + '</div>';
+  }
+
+  // Отдаёт список без изменений, если пусто, иначе фильтрует по нескольким полям без учёта регистра
+  function filterList(list, query, fields) {
+    if (!query) return list;
+    var q = query.toLowerCase();
+    return list.filter(function (item) {
+      return fields.some(function (f) { return String(item[f] || '').toLowerCase().indexOf(q) !== -1; });
+    });
+  }
+
+  // Уникальные непустые значения указанного поля из массива объектов — источник подсказок для <datalist>
+  function fieldValues(list, key) {
+    var seen = {};
+    var result = [];
+    (list || []).forEach(function (o) {
+      var v = o[key];
+      if (v && !seen[v]) { seen[v] = true; result.push(String(v)); }
+    });
+    return result;
+  }
+
+  function buildDatalist(id, values) {
+    return '<datalist id="' + id + '">' + values.map(function (v) {
+      return '<option value="' + escapeHtml(v) + '">';
+    }).join('') + '</datalist>';
+  }
+
+  // Подсказки для поля "ID станка" — показывают не только ID, но и что это за станок
+  function equipmentDatalist(listId) {
+    var list = state.equipmentList || [];
+    return '<datalist id="' + listId + '">' + list.map(function (e) {
+      var label = [e['Тип оборудования'], e['Модель']].filter(Boolean).join(' ') +
+        (e['Инвентарный номер'] ? ' (инв. № ' + e['Инвентарный номер'] + ')' : '');
+      return '<option value="' + escapeHtml(e['ID станка']) + '">' + escapeHtml(label) + '</option>';
+    }).join('') + '</datalist>';
   }
 
   function detailRow(label, value) {
