@@ -229,6 +229,10 @@
       if (can('reports.create')) document.getElementById('add-report-eq').addEventListener('click', function () { openReportForm(id); });
 
       call('getReports', id).then(function (reports) {
+        reports.forEach(function (r) {
+          r._ourNumber = eq['Наш номер'] || '';
+          r._eqLabel = [eq['Тип оборудования'], eq['Модель']].filter(Boolean).join(' ');
+        });
         document.getElementById('eq-reports').innerHTML = reports.length
           ? reports.map(renderReportCard).join('')
           : '<div class="empty">Отчетов пока нет</div>';
@@ -247,7 +251,7 @@
       formField('ourNumber', 'Наш номер', f['Наш номер'], false, 'dl-our') +
       formField('type', 'Тип оборудования', f['Тип оборудования'], false, 'dl-type') +
       formField('model', 'Модель', f['Модель'], false, 'dl-model') +
-      formField('year', 'Год выпуска', f['Год выпуска']) +
+      formField('year', 'Год выпуска', f['Год выпуска'], false, null, 'number') +
       formField('factory', 'Завод изготовитель', f['Завод изготовитель'], false, 'dl-factory') +
       formField('status', 'Статус', f['Статус'], false, 'dl-status') +
       formField('customer', 'Заказчик', f['Заказчик'], false, 'dl-customer') +
@@ -290,16 +294,24 @@
     content.innerHTML = '<div class="loading">Загрузка...</div>';
     Promise.all([call('getReports'), call('getEquipmentList')]).then(function (res) {
       var list = res[0];
+      var eqList = res[1];
+      state.equipmentList = eqList;
+      var eqById = {};
+      eqList.forEach(function (e) { eqById[e['ID станка']] = e; });
+      list.forEach(function (r) {
+        var eq = eqById[r['ID Станка']];
+        r._ourNumber = eq ? (eq['Наш номер'] || '') : '';
+        r._eqLabel = eq ? [eq['Тип оборудования'], eq['Модель']].filter(Boolean).join(' ') : '';
+      });
       state.reportsList = list;
-      state.equipmentList = res[1];
       var html = '';
       if (can('reports.create')) html += '<button class="btn-primary" id="add-report">+ Добавить отчет</button>';
-      html += '<input type="text" class="search-input" id="rep-search" placeholder="Поиск по отчетам...">';
+      html += '<input type="text" class="search-input" id="rep-search" placeholder="Поиск (наш номер, станок, описание)...">';
       html += '<div class="list" id="rep-list"></div>';
       content.innerHTML = html;
       if (can('reports.create')) document.getElementById('add-report').addEventListener('click', function () { openReportForm(); });
 
-      var searchFields = ['ID Станка', 'Кто заполнил', 'Статус', 'Описание работ', 'Наши запчасти', 'Запчасти заказчика', 'Дата проведения работ'];
+      var searchFields = ['_ourNumber', 'ID Станка', 'Кто заполнил', 'Статус', 'Описание работ', 'Наши запчасти', 'Запчасти заказчика', 'Дата проведения работ'];
       function renderList(query) {
         var filtered = filterList(list, query, searchFields);
         document.getElementById('rep-list').innerHTML = filtered.length
@@ -313,7 +325,8 @@
 
   function renderReportCard(r) {
     return '<div class="card">' +
-      '<div class="card-title">Станок ' + escapeHtml(r['ID Станка']) + ' · ' + escapeHtml(r['Статус'] || '') + '</div>' +
+      '<div class="card-title">Наш № ' + escapeHtml(r._ourNumber || '—') + (r._eqLabel ? ' · ' + escapeHtml(r._eqLabel) : '') + '</div>' +
+      '<div class="card-sub">ID станка: ' + escapeHtml(r['ID Станка']) + ' · ' + escapeHtml(r['Статус'] || '') + '</div>' +
       '<div class="card-sub">' + escapeHtml(r['Дата проведения работ'] || '') + ' — ' + escapeHtml(r['Кто заполнил'] || '') + '</div>' +
       '<div class="card-sub">' + escapeHtml((r['Описание работ'] || '').slice(0, 140)) + '</div>' +
       '</div>';
@@ -322,31 +335,56 @@
   function openReportForm(equipmentId) {
     var content = document.getElementById('content');
     var reports = state.reportsList || [];
+    var eqList = state.equipmentList || [];
+    var presetEq = equipmentId ? eqList.find(function (e) { return String(e['ID станка']) === String(equipmentId); }) : null;
+    var presetOurNumber = presetEq ? (presetEq['Наш номер'] || '') : '';
+
     content.innerHTML =
       '<button class="btn-back">← Назад</button>' +
       '<h2>Новый отчет</h2>' +
-      formField('equipmentId', 'ID станка', equipmentId || '', false, 'dl-eq') +
-      formField('workDate', 'Дата проведения работ', '') +
+      formField('ourNumber', 'Наш номер станка', presetOurNumber, false, 'dl-ournum') +
+      '<div class="field"><label>Станок (определяется автоматически)</label>' +
+      '<input id="f-equipmentId" value="' + escapeHtml(equipmentId || '') + '" readonly style="opacity:.65;"></div>' +
+      '<div id="eq-match-hint" style="font-size:12px;color:var(--hint);margin:-6px 0 10px;"></div>' +
+      formField('workDate', 'Дата проведения работ', '', false, null, 'date') +
       formField('description', 'Описание работ', '', true) +
       formField('ourParts', 'Наши запчасти', '', true, 'dl-ourparts') +
       formField('customerParts', 'Запчасти заказчика', '', true, 'dl-custparts') +
       formField('neededNextTime', 'Что необходимо в следующий раз', '', true) +
       formField('neededFuture', 'Что потребуется в дальнейшем', '', true) +
       formField('plannedWork', 'Запланированные работы', '', true) +
-      formField('nextWorkDate', 'Дата следующих работ', '') +
-      formField('status', 'Статус', '', false, 'dl-repstatus') +
+      formField('nextWorkDate', 'Дата следующих работ', '', false, null, 'date') +
+      selectField('status', 'Статус', REPORT_STATUSES, '') +
       photoField('rep-photo') +
       '<button class="btn-primary" id="save-report">Сохранить</button>' +
-      equipmentDatalist('dl-eq') +
+      buildDatalist('dl-ournum', fieldValues(eqList, 'Наш номер')) +
       buildDatalist('dl-ourparts', fieldValues(reports, 'Наши запчасти')) +
-      buildDatalist('dl-custparts', fieldValues(reports, 'Запчасти заказчика')) +
-      buildDatalist('dl-repstatus', fieldValues(reports, 'Статус'));
+      buildDatalist('dl-custparts', fieldValues(reports, 'Запчасти заказчика'));
 
     content.querySelector('.btn-back').addEventListener('click', renderReports);
     setupPhotoField('rep-photo');
 
+    function matchByOurNumber() {
+      var val = document.getElementById('f-ourNumber').value.trim();
+      var match = eqList.find(function (e) { return String(e['Наш номер'] || '').toLowerCase() === val.toLowerCase(); });
+      var idInput = document.getElementById('f-equipmentId');
+      var hint = document.getElementById('eq-match-hint');
+      if (match) {
+        idInput.value = match['ID станка'];
+        hint.textContent = '✓ ' + [match['Тип оборудования'], match['Модель']].filter(Boolean).join(' ');
+        hint.style.color = 'var(--hint)';
+      } else {
+        idInput.value = '';
+        hint.textContent = val ? 'Станок с таким "Наш номер" не найден' : '';
+        hint.style.color = val ? '#e53935' : 'var(--hint)';
+      }
+    }
+    document.getElementById('f-ourNumber').addEventListener('input', matchByOurNumber);
+    if (presetOurNumber) matchByOurNumber();
+
     document.getElementById('save-report').addEventListener('click', function () {
       var data = collectForm(['equipmentId', 'workDate', 'description', 'ourParts', 'customerParts', 'neededNextTime', 'neededFuture', 'plannedWork', 'nextWorkDate', 'status']);
+      if (!data.equipmentId) { showError(new Error('Не удалось определить станок по «Наш номер» — проверьте значение')); return; }
       uploadPendingPhotos('rep-photo').then(function (fileIds) {
         if (fileIds.length) data.photoFileIds = fileIds;
         return call('addReport', data);
@@ -446,12 +484,23 @@
   }
 
   // ---------- Общие хелперы UI ----------
-  function formField(id, label, value, textarea, listId) {
+  var REPORT_STATUSES = ['В работе', 'Завершено', 'Ожидает запчасти', 'Отложено', 'Требует диагностики'];
+
+  function formField(id, label, value, textarea, listId, inputType) {
     value = value == null ? '' : String(value);
     var listAttr = listId ? ' list="' + listId + '"' : '';
+    var typeAttr = ' type="' + (inputType || 'text') + '"';
     return '<div class="field"><label>' + label + '</label>' +
       (textarea ? '<textarea id="f-' + id + '">' + escapeHtml(value) + '</textarea>'
-        : '<input id="f-' + id + '"' + listAttr + ' value="' + escapeHtml(value) + '" autocomplete="off">') + '</div>';
+        : '<input id="f-' + id + '"' + typeAttr + listAttr + ' value="' + escapeHtml(value) + '" autocomplete="off">') + '</div>';
+  }
+
+  function selectField(id, label, options, selected) {
+    return '<div class="field"><label>' + label + '</label><select id="f-' + id + '">' +
+      '<option value="">— не выбрано —</option>' +
+      options.map(function (o) {
+        return '<option value="' + escapeHtml(o) + '"' + (o === selected ? ' selected' : '') + '>' + escapeHtml(o) + '</option>';
+      }).join('') + '</select></div>';
   }
 
   // Отдаёт список без изменений, если пусто, иначе фильтрует по нескольким полям без учёта регистра
