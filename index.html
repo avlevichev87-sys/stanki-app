@@ -3,17 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>База станков</title>
+<title>Инженер-Сервис — База станков</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
-    --bg: var(--tg-theme-bg-color, #ffffff);
-    --text: var(--tg-theme-text-color, #1a1a1a);
-    --hint: var(--tg-theme-hint-color, #8a8a8a);
-    --link: var(--tg-theme-link-color, #2481cc);
-    --button: var(--tg-theme-button-color, #2481cc);
-    --button-text: var(--tg-theme-button-text-color, #ffffff);
-    --secondary-bg: var(--tg-theme-secondary-bg-color, #f0f0f0);
+    --bg: #ffffff;
+    --text: #1a1a1a;
+    --hint: #8a8a8a;
+    --link: #2481cc;
+    --button: #2481cc;
+    --button-text: #ffffff;
+    --secondary-bg: #f2f4f7;
+    --border: #e3e7ec;
   }
   * { box-sizing: border-box; }
   body {
@@ -22,40 +23,57 @@
     background: var(--bg); color: var(--text);
   }
   #app { padding: 12px 16px 32px; }
-  .header { display: flex; justify-content: space-between; align-items: center; padding: 8px 0 12px; }
+  .header { display: flex; justify-content: space-between; align-items: center; padding: 6px 0 14px; }
+  .header-user { font-size: 14px; }
   .role { color: var(--hint); font-size: 13px; }
+  .header-logo { height: 34px; display: block; }
   .tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 12px; -webkit-overflow-scrolling: touch; }
   .tab-btn {
     flex: 0 0 auto; padding: 8px 14px; border-radius: 20px; border: none;
     background: var(--secondary-bg); color: var(--text); font-size: 14px;
   }
   .tab-btn.active { background: var(--button); color: var(--button-text); }
-  .card { background: var(--secondary-bg); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; }
+  .card { background: var(--secondary-bg); border-radius: 12px; padding: 12px 14px; margin-bottom: 8px; border: 1px solid var(--border); }
   .card-title { font-weight: 600; margin-bottom: 4px; }
   .card-sub { font-size: 13px; color: var(--hint); }
   .empty, .loading, .error { color: var(--hint); text-align: center; padding: 24px 0; }
   .error { color: #e53935; }
   .btn-primary {
-    display: block; width: 100%; padding: 12px; margin: 10px 0; border: none; border-radius: 10px;
+    display: block; width: 100%; padding: 12px; margin: 8px 0; border: none; border-radius: 10px;
     background: var(--button); color: var(--button-text); font-size: 15px; font-weight: 600;
+  }
+  .btn-secondary {
+    display: inline-block; padding: 9px 14px; margin-top: 8px; border-radius: 8px; border: 1px solid var(--button);
+    background: transparent; color: var(--button); font-size: 13px; font-weight: 600;
   }
   .btn-back { background: none; border: none; color: var(--link); padding: 8px 0; font-size: 14px; }
   .field { margin-bottom: 10px; }
   .field label { display: block; font-size: 13px; color: var(--hint); margin-bottom: 4px; }
   .field input, .field textarea, .field select {
-    width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--secondary-bg);
-    background: var(--secondary-bg); color: var(--text); font-size: 14px; font-family: inherit;
+    width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border);
+    background: #fff; color: var(--text); font-size: 14px; font-family: inherit;
   }
   .field textarea { min-height: 70px; resize: vertical; }
-  .detail-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--secondary-bg); font-size: 14px; }
+  .detail-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
   .detail-label { color: var(--hint); flex: 0 0 auto; }
   .photo-preview { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-  .photo-chip { background: var(--secondary-bg); padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+  .photo-chip { background: #fff; border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; font-size: 12px; }
   .role-select { display: inline-block; width: auto; margin-top: 4px; }
   .search-input {
-    width: 100%; padding: 10px 12px; border-radius: 20px; border: 1px solid var(--secondary-bg);
-    background: var(--secondary-bg); color: var(--text); font-size: 14px; margin-bottom: 10px;
+    width: 100%; padding: 10px 12px; border-radius: 20px; border: 1px solid var(--border);
+    background: #fff; color: var(--text); font-size: 14px; margin-bottom: 10px;
   }
+  .status-dash { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .status-chip {
+    border: 1px solid var(--border); background: #fff; border-radius: 16px; padding: 6px 10px;
+    font-size: 12px; color: var(--text); display: flex; align-items: center; gap: 5px;
+  }
+  .status-chip .chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--chip-color, #999); display: inline-block; }
+  .status-chip.active { border-color: var(--chip-color, var(--button)); background: color-mix(in srgb, var(--chip-color, var(--button)) 12%, white); font-weight: 600; }
+  .status-chip.mine-chip.active { border-color: var(--button); background: color-mix(in srgb, var(--button) 12%, white); font-weight: 600; }
+  .status-badge { display: inline-block; padding: 3px 9px; border-radius: 10px; font-size: 11px; color: #fff; font-weight: 600; margin-top: 4px; }
+  .eq-card-header { cursor: pointer; }
+  .eq-card-body { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); }
   h2 { font-size: 18px; margin: 8px 0 14px; }
   h3 { font-size: 15px; margin: 18px 0 8px; color: var(--hint); }
 </style>
@@ -68,6 +86,8 @@
   // !!! ВСТАВЬТЕ СЮДА ССЫЛКУ ВАШЕГО APPS SCRIPT WEB APP (заканчивается на /exec) !!!
   var API_URL = 'https://script.google.com/macros/s/AKfycbwp7LpPuphMwElBibGKx1lVXhsDgtdZboeGiIR8UB8cf-IGSkZ7hBJ472PzPvMcaBGYCA/exec';
 
+  var LOGO_B64 = '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';
+
   var tg = window.Telegram && window.Telegram.WebApp;
   if (tg) { tg.ready(); tg.expand(); }
   var initData = tg ? tg.initData : '';
@@ -75,13 +95,34 @@
   var state = { role: null, fullName: null, permissions: {}, telegramId: null, equipmentList: [], reportsList: [], partsList: [] };
   var app = document.getElementById('app');
 
+  var STATUS_CONFIG = [
+    { name: 'Заявка', color: '#9e9e9e' },
+    { name: 'Запланирован', color: '#42a5f5' },
+    { name: 'Осмотрен', color: '#26c6da' },
+    { name: 'В работе', color: '#ffa726' },
+    { name: 'Проблема', color: '#ef5350' },
+    { name: 'Ожидание ЗИП', color: '#ab47bc' },
+    { name: 'Выставлен Счет', color: '#8d6e63', hideFromMaster: true },
+    { name: 'Оплачен', color: '#66bb6a', hideFromMaster: true },
+    { name: 'Сдан', color: '#78909c' }
+  ];
+
+  function visibleStatuses() {
+    return STATUS_CONFIG.filter(function (s) { return !(s.hideFromMaster && state.role === 'Мастер'); });
+  }
+
+  function statusColorFor(status) {
+    var found = STATUS_CONFIG.find(function (s) { return s.name === status; });
+    return found ? found.color : '#9e9e9e';
+  }
+
+  var equipmentFilterState = { status: null, mine: false, query: '' };
+
   // Вызов серверной функции Apps Script через fetch (обычный JSON API, без iframe-песочницы)
   function call(fnName) {
     var args = Array.prototype.slice.call(arguments, 1);
     return fetch(API_URL, {
       method: 'POST',
-      // Content-Type: text/plain специально, чтобы браузер не слал предварительный CORS-запрос (preflight),
-      // который Apps Script по умолчанию не обрабатывает.
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({ action: fnName, args: [initData].concat(args) })
     })
@@ -94,6 +135,14 @@
 
   function can(action) {
     return state.role === 'Создатель' || !!state.permissions[action];
+  }
+
+  // Собирает всех ответственных станка независимо от того, сколько колонок "Ответственный N" реально есть
+  function getResponsibles(e) {
+    return Object.keys(e).filter(function (k) { return /^Ответственный \d+$/.test(k); })
+      .sort(function (a, b) { return parseInt(a.replace('Ответственный ', ''), 10) - parseInt(b.replace('Ответственный ', ''), 10); })
+      .map(function (k) { return e[k]; })
+      .filter(Boolean);
   }
 
   function init() {
@@ -137,13 +186,14 @@
 
   function renderShell() {
     var tabs = [];
-    if (can('equipment.view')) tabs.push(['equipment', 'Станки']);
+    if (can('equipment.view')) tabs.push(['equipment', 'Главная']);
     if (can('reports.view')) tabs.push(['reports', 'Отчеты']);
     if (can('parts.view')) tabs.push(['parts', 'Запчасти']);
     if (can('users.view')) tabs.push(['users', 'Пользователи']);
 
     app.innerHTML =
-      '<div class="header"><div>' + escapeHtml(state.fullName) + ' <span class="role">(' + escapeHtml(state.role) + ')</span></div></div>' +
+      '<div class="header"><div class="header-user">' + escapeHtml(state.fullName) + ' <span class="role">(' + escapeHtml(state.role) + ')</span></div>' +
+      '<img class="header-logo" src="data:image/jpeg;base64,' + LOGO_B64 + '" alt="Инженер-Сервис"></div>' +
       '<div class="tabs">' + tabs.map(function (t) {
         return '<button class="tab-btn" data-tab="' + t[0] + '">' + t[1] + '</button>';
       }).join('') + '</div>' +
@@ -165,78 +215,153 @@
     else if (tab === 'users') renderUsers();
   }
 
-  // ---------- Оборудование ----------
+  // Глобальный делегированный обработчик для кнопки "Стать ответственным" —
+  // она встречается на карточках отчётов в разных местах приложения.
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('.claim-resp-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    var eqId = btn.dataset.eqid;
+    btn.disabled = true;
+    call('claimResponsibility', eqId).then(function (res) {
+      btn.disabled = false;
+      var msg = res.already ? 'Вы уже ответственны за этот станок' : 'Вы назначены ответственным (' + res.column + ')';
+      if (tg && tg.showAlert) tg.showAlert(msg); else alert(msg);
+    }).catch(function (err) { btn.disabled = false; showError(err); });
+  });
+
+  // ---------- Главная (Оборудование + дашборд) ----------
   function renderEquipment() {
     var content = document.getElementById('content');
     content.innerHTML = '<div class="loading">Загрузка...</div>';
     call('getEquipmentList').then(function (list) {
       state.equipmentList = list;
-      var html = '';
-      if (can('equipment.create')) html += '<button class="btn-primary" id="add-eq">+ Добавить оборудование</button>';
-      html += '<input type="text" class="search-input" id="eq-search" placeholder="Поиск по оборудованию...">';
-      html += '<div class="list" id="eq-list"></div>';
-      content.innerHTML = html;
-      if (can('equipment.create')) document.getElementById('add-eq').addEventListener('click', function () { openEquipmentForm(null); });
-
-      var searchFields = ['ID станка', 'Инвентарный номер', 'Наш номер', 'Тип оборудования', 'Модель', 'Завод изготовитель', 'Статус', 'Заказчик', 'Контактное лицо', 'Адрес', 'Комментарий'];
-      function renderList(query) {
-        var filtered = filterList(list, query, searchFields);
-        document.getElementById('eq-list').innerHTML = filtered.length
-          ? filtered.map(renderEquipmentCard).join('')
-          : '<div class="empty">Ничего не найдено</div>';
-        Array.prototype.forEach.call(document.querySelectorAll('.eq-card'), function (card) {
-          card.addEventListener('click', function () { openEquipmentDetail(card.dataset.id); });
-        });
-      }
-      document.getElementById('eq-search').addEventListener('input', function (e) { renderList(e.target.value); });
-      renderList('');
+      equipmentFilterState = { status: null, mine: false, query: equipmentFilterState.query || '' };
+      renderEquipmentHome();
     }).catch(showError);
   }
 
-  function renderEquipmentCard(e) {
-    return '<div class="card eq-card" data-id="' + escapeHtml(e['ID станка']) + '">' +
-      '<div class="card-title">' + escapeHtml(e['Тип оборудования'] || '') + ' — ' + escapeHtml(e['Модель'] || '') + '</div>' +
-      '<div class="card-sub">Наш № ' + escapeHtml(e['Наш номер'] || '-') + ' · Инв. № ' + escapeHtml(e['Инвентарный номер'] || '-') + ' · ' + escapeHtml(e['Статус'] || '') + '</div>' +
-      '<div class="card-sub">' + escapeHtml(e['Заказчик'] || '') + '</div>' +
+  function renderEquipmentHome() {
+    var content = document.getElementById('content');
+    var list = state.equipmentList || [];
+
+    var buttonsHtml = '';
+    if (can('equipment.create')) buttonsHtml += '<button class="btn-primary" id="add-eq">+ Добавить оборудование</button>';
+    if (can('reports.create')) buttonsHtml += '<button class="btn-primary" id="add-report-home">+ Добавить отчет</button>';
+
+    var dashboardHtml = '<div class="status-dash">' +
+      visibleStatuses().map(function (s) {
+        var count = list.filter(function (e) { return e['Статус'] === s.name; }).length;
+        var active = equipmentFilterState.status === s.name;
+        return '<button class="status-chip' + (active ? ' active' : '') + '" data-status="' + escapeHtml(s.name) + '" style="--chip-color:' + s.color + '">' +
+          '<span class="chip-dot"></span>' + escapeHtml(s.name) + ' <b>' + count + '</b></button>';
+      }).join('') +
+      '<button class="status-chip mine-chip' + (equipmentFilterState.mine ? ' active' : '') + '" id="mine-filter">👤 Мои станки</button>' +
       '</div>';
+
+    content.innerHTML = buttonsHtml +
+      '<input type="text" class="search-input" id="global-search" placeholder="Поиск по всей базе..." value="' + escapeHtml(equipmentFilterState.query) + '">' +
+      dashboardHtml +
+      '<div class="list" id="eq-list"></div>';
+
+    if (can('equipment.create')) document.getElementById('add-eq').addEventListener('click', function () { openEquipmentForm(null); });
+    if (can('reports.create')) document.getElementById('add-report-home').addEventListener('click', function () { openReportForm(); });
+
+    var searchInput = document.getElementById('global-search');
+    searchInput.addEventListener('input', function (e) {
+      equipmentFilterState.query = e.target.value;
+      renderFilteredEquipmentList();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.status-chip[data-status]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var s = btn.dataset.status;
+        equipmentFilterState.status = equipmentFilterState.status === s ? null : s;
+        renderEquipmentHome();
+      });
+    });
+    document.getElementById('mine-filter').addEventListener('click', function () {
+      equipmentFilterState.mine = !equipmentFilterState.mine;
+      renderEquipmentHome();
+    });
+
+    renderFilteredEquipmentList();
+    searchInput.focus();
+    searchInput.selectionStart = searchInput.selectionEnd = searchInput.value.length;
   }
 
-  function openEquipmentDetail(id) {
-    call('getEquipmentList').then(function (list) {
-      state.equipmentList = list;
-      var eq = list.find(function (e) { return String(e['ID станка']) === String(id); });
-      if (!eq) return showError(new Error('Станок не найден'));
-      var content = document.getElementById('content');
-      content.innerHTML =
-        '<button class="btn-back">← Назад</button>' +
-        '<h2>' + escapeHtml(eq['Тип оборудования']) + ' ' + escapeHtml(eq['Модель']) + '</h2>' +
-        detailRow('Наш номер', eq['Наш номер']) +
-        detailRow('Инвентарный №', eq['Инвентарный номер']) +
-        detailRow('Год выпуска', eq['Год выпуска']) +
-        detailRow('Завод', eq['Завод изготовитель']) +
-        detailRow('Статус', eq['Статус']) +
-        detailRow('Заказчик', eq['Заказчик']) +
-        detailRow('Контакт', eq['Контактное лицо']) +
-        detailRow('Адрес', eq['Адрес']) +
-        detailRow('Комментарий', eq['Комментарий']) +
-        detailRow('Ответственные', [eq['Ответственный 1'], eq['Ответственный 2'], eq['Ответственный 3']].filter(Boolean).join(', ')) +
-        (can('equipment.edit') ? '<button class="btn-primary" id="edit-eq">Редактировать</button>' : '') +
-        (can('reports.create') ? '<button class="btn-primary" id="add-report-eq">+ Добавить отчет</button>' : '') +
-        '<h3>Отчеты по станку</h3><div id="eq-reports" class="loading">Загрузка...</div>';
+  function renderFilteredEquipmentList() {
+    var list = state.equipmentList || [];
+    var searchFields = ['ID станка', 'Инвентарный номер', 'Наш номер', 'Тип оборудования', 'Модель', 'Завод изготовитель', 'Статус', 'Заказчик', 'Контактное лицо', 'Адрес', 'Комментарий'];
+    var filtered = filterList(list, equipmentFilterState.query, searchFields);
+    if (equipmentFilterState.status) {
+      filtered = filtered.filter(function (e) { return e['Статус'] === equipmentFilterState.status; });
+    }
+    if (equipmentFilterState.mine) {
+      filtered = filtered.filter(function (e) { return getResponsibles(e).indexOf(state.fullName) !== -1; });
+    }
+    var listEl = document.getElementById('eq-list');
+    listEl.innerHTML = filtered.length ? filtered.map(renderEquipmentCard).join('') : '<div class="empty">Ничего не найдено</div>';
 
-      content.querySelector('.btn-back').addEventListener('click', renderEquipment);
-      if (can('equipment.edit')) document.getElementById('edit-eq').addEventListener('click', function () { openEquipmentForm(eq); });
-      if (can('reports.create')) document.getElementById('add-report-eq').addEventListener('click', function () { openReportForm(id); });
+    Array.prototype.forEach.call(document.querySelectorAll('.eq-card'), function (card) {
+      card.querySelector('.eq-card-header').addEventListener('click', function () { toggleEquipmentCard(card); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.eq-edit-btn'), function (b) {
+      b.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var eq = list.find(function (x) { return String(x['ID станка']) === b.dataset.id; });
+        openEquipmentForm(eq);
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.eq-addreport-btn'), function (b) {
+      b.addEventListener('click', function (ev) { ev.stopPropagation(); openReportForm(b.dataset.id); });
+    });
+  }
 
-      call('getReports', id).then(function (reports) {
-        reports.forEach(function (r) {
-          r._ourNumber = eq['Наш номер'] || '';
-          r._eqLabel = [eq['Тип оборудования'], eq['Модель']].filter(Boolean).join(' ');
-        });
-        document.getElementById('eq-reports').innerHTML = reports.length
-          ? reports.map(renderReportCard).join('')
-          : '<div class="empty">Отчетов пока нет</div>';
-      }).catch(showError);
+  function renderEquipmentCard(e) {
+    var id = e['ID станка'];
+    var responsibles = getResponsibles(e);
+    var statusHtml = e['Статус'] ? '<span class="status-badge" style="background:' + statusColorFor(e['Статус']) + '">' + escapeHtml(e['Статус']) + '</span>' : '';
+    return '<div class="card eq-card" data-id="' + escapeHtml(id) + '">' +
+      '<div class="eq-card-header">' +
+        '<div class="card-title">' + escapeHtml(e['Тип оборудования'] || '') + ' — ' + escapeHtml(e['Модель'] || '') + '</div>' +
+        '<div class="card-sub">Наш № ' + escapeHtml(e['Наш номер'] || '-') + ' · Инв. № ' + escapeHtml(e['Инвентарный номер'] || '-') + '</div>' +
+        statusHtml +
+      '</div>' +
+      '<div class="eq-card-body" style="display:none;">' +
+        detailRow('Наш номер', e['Наш номер']) +
+        detailRow('Инвентарный №', e['Инвентарный номер']) +
+        detailRow('Год выпуска', e['Год выпуска']) +
+        detailRow('Завод', e['Завод изготовитель']) +
+        detailRow('Статус', e['Статус']) +
+        detailRow('Заказчик', e['Заказчик']) +
+        detailRow('Контакт', e['Контактное лицо']) +
+        detailRow('Адрес', e['Адрес']) +
+        detailRow('Комментарий', e['Комментарий']) +
+        detailRow('Ответственные', responsibles.join(', ') || '—') +
+        (can('equipment.edit') ? '<button class="btn-primary eq-edit-btn" data-id="' + escapeHtml(id) + '">Редактировать</button>' : '') +
+        (can('reports.create') ? '<button class="btn-primary eq-addreport-btn" data-id="' + escapeHtml(id) + '">+ Добавить отчет</button>' : '') +
+        '<h3>История ремонта</h3><div class="eq-history" id="hist-' + escapeHtml(id) + '"></div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function toggleEquipmentCard(card) {
+    var body = card.querySelector('.eq-card-body');
+    var isOpen = body.style.display !== 'none';
+    if (isOpen) { body.style.display = 'none'; return; }
+    body.style.display = 'block';
+    var id = card.dataset.id;
+    var histEl = document.getElementById('hist-' + id);
+    if (histEl.dataset.loaded) return;
+    histEl.innerHTML = '<div class="loading">Загрузка истории...</div>';
+    var eq = (state.equipmentList || []).find(function (x) { return String(x['ID станка']) === String(id); });
+    call('getReports', id).then(function (reports) {
+      histEl.dataset.loaded = '1';
+      reports.forEach(function (r) {
+        r._ourNumber = eq ? (eq['Наш номер'] || '') : '';
+        r._eqLabel = eq ? [eq['Тип оборудования'], eq['Модель']].filter(Boolean).join(' ') : '';
+      });
+      histEl.innerHTML = reports.length ? reports.map(renderReportCard).join('') : '<div class="empty">Отчетов пока нет</div>';
     }).catch(showError);
   }
 
@@ -253,7 +378,7 @@
       formField('model', 'Модель', f['Модель'], false, 'dl-model') +
       formField('year', 'Год выпуска', f['Год выпуска'], false, null, 'number') +
       formField('factory', 'Завод изготовитель', f['Завод изготовитель'], false, 'dl-factory') +
-      formField('status', 'Статус', f['Статус'], false, 'dl-status') +
+      selectField('status', 'Статус', visibleStatuses().map(function (s) { return s.name; }), f['Статус'] || '') +
       formField('customer', 'Заказчик', f['Заказчик'], false, 'dl-customer') +
       formField('contact', 'Контактное лицо', f['Контактное лицо'], false, 'dl-contact') +
       formField('address', 'Адрес', f['Адрес'], false, 'dl-address') +
@@ -268,15 +393,12 @@
       buildDatalist('dl-type', fieldValues(list, 'Тип оборудования')) +
       buildDatalist('dl-model', fieldValues(list, 'Модель')) +
       buildDatalist('dl-factory', fieldValues(list, 'Завод изготовитель')) +
-      buildDatalist('dl-status', fieldValues(list, 'Статус')) +
       buildDatalist('dl-customer', fieldValues(list, 'Заказчик')) +
       buildDatalist('dl-contact', fieldValues(list, 'Контактное лицо')) +
       buildDatalist('dl-address', fieldValues(list, 'Адрес')) +
       buildDatalist('dl-resp', fieldValues(list, 'Ответственный 1').concat(fieldValues(list, 'Ответственный 2'), fieldValues(list, 'Ответственный 3')));
 
-    content.querySelector('.btn-back').addEventListener('click', function () {
-      eq ? openEquipmentDetail(eq['ID станка']) : renderEquipment();
-    });
+    content.querySelector('.btn-back').addEventListener('click', renderEquipment);
     setupPhotoField('eq-photo');
 
     document.getElementById('save-eq').addEventListener('click', function () {
@@ -304,22 +426,7 @@
         r._eqLabel = eq ? [eq['Тип оборудования'], eq['Модель']].filter(Boolean).join(' ') : '';
       });
       state.reportsList = list;
-      var html = '';
-      if (can('reports.create')) html += '<button class="btn-primary" id="add-report">+ Добавить отчет</button>';
-      html += '<input type="text" class="search-input" id="rep-search" placeholder="Поиск (наш номер, станок, описание)...">';
-      html += '<div class="list" id="rep-list"></div>';
-      content.innerHTML = html;
-      if (can('reports.create')) document.getElementById('add-report').addEventListener('click', function () { openReportForm(); });
-
-      var searchFields = ['_ourNumber', 'ID Станка', 'Кто заполнил', 'Статус', 'Описание работ', 'Наши запчасти', 'Запчасти заказчика', 'Дата проведения работ'];
-      function renderList(query) {
-        var filtered = filterList(list, query, searchFields);
-        document.getElementById('rep-list').innerHTML = filtered.length
-          ? filtered.map(renderReportCard).join('')
-          : '<div class="empty">Ничего не найдено</div>';
-      }
-      document.getElementById('rep-search').addEventListener('input', function (e) { renderList(e.target.value); });
-      renderList('');
+      content.innerHTML = '<div class="list" id="rep-list">' + (list.length ? list.map(renderReportCard).join('') : '<div class="empty">Отчетов нет</div>') + '</div>';
     }).catch(showError);
   }
 
@@ -329,6 +436,7 @@
       '<div class="card-sub">ID станка: ' + escapeHtml(r['ID Станка']) + ' · ' + escapeHtml(r['Статус'] || '') + '</div>' +
       '<div class="card-sub">' + escapeHtml(r['Дата проведения работ'] || '') + ' — ' + escapeHtml(r['Кто заполнил'] || '') + '</div>' +
       '<div class="card-sub">' + escapeHtml((r['Описание работ'] || '').slice(0, 140)) + '</div>' +
+      (can('reports.create') ? '<button class="btn-secondary claim-resp-btn" data-eqid="' + escapeHtml(r['ID Станка']) + '">👤 Стать ответственным</button>' : '') +
       '</div>';
   }
 
@@ -354,7 +462,7 @@
       formField('neededFuture', 'Что потребуется в дальнейшем', '', true) +
       formField('plannedWork', 'Запланированные работы', '', true) +
       formField('nextWorkDate', 'Дата следующих работ', '', false, null, 'date') +
-      selectField('status', 'Статус', REPORT_STATUSES, '') +
+      selectField('status', 'Статус', visibleStatuses().map(function (s) { return s.name; }), '') +
       photoField('rep-photo') +
       '<button class="btn-primary" id="save-report">Сохранить</button>' +
       buildDatalist('dl-ournum', fieldValues(eqList, 'Наш номер')) +
@@ -400,21 +508,12 @@
       state.partsList = list;
       var html = '';
       if (can('parts.create')) html += '<button class="btn-primary" id="add-part">+ Заявка на запчасть</button>';
-      html += '<input type="text" class="search-input" id="part-search" placeholder="Поиск по запчастям...">';
-      html += '<div class="list" id="part-list"></div>';
+      html += '<div class="list">' + (list.length ? list.map(function (p) {
+        return '<div class="card"><div class="card-title">' + escapeHtml(p['Наименование']) + ' × ' + escapeHtml(p['Количество']) + '</div>' +
+          '<div class="card-sub">Станок ' + escapeHtml(p['ID станка'] || '') + ' · ' + escapeHtml(p['Адрес'] || '') + '</div></div>';
+      }).join('') : '<div class="empty">Заявок нет</div>') + '</div>';
       content.innerHTML = html;
       if (can('parts.create')) document.getElementById('add-part').addEventListener('click', openPartForm);
-
-      var searchFields = ['Наименование', 'ID станка', 'Адрес'];
-      function renderList(query) {
-        var filtered = filterList(list, query, searchFields);
-        document.getElementById('part-list').innerHTML = filtered.length ? filtered.map(function (p) {
-          return '<div class="card"><div class="card-title">' + escapeHtml(p['Наименование']) + ' × ' + escapeHtml(p['Количество']) + '</div>' +
-            '<div class="card-sub">Станок ' + escapeHtml(p['ID станка'] || '') + ' · ' + escapeHtml(p['Адрес'] || '') + '</div></div>';
-        }).join('') : '<div class="empty">Ничего не найдено</div>';
-      }
-      document.getElementById('part-search').addEventListener('input', function (e) { renderList(e.target.value); });
-      renderList('');
     }).catch(showError);
   }
 
@@ -484,8 +583,6 @@
   }
 
   // ---------- Общие хелперы UI ----------
-  var REPORT_STATUSES = ['В работе', 'Завершено', 'Ожидает запчасти', 'Отложено', 'Требует диагностики'];
-
   function formField(id, label, value, textarea, listId, inputType) {
     value = value == null ? '' : String(value);
     var listAttr = listId ? ' list="' + listId + '"' : '';
@@ -503,7 +600,6 @@
       }).join('') + '</select></div>';
   }
 
-  // Отдаёт список без изменений, если пусто, иначе фильтрует по нескольким полям без учёта регистра
   function filterList(list, query, fields) {
     if (!query) return list;
     var q = query.toLowerCase();
@@ -512,7 +608,6 @@
     });
   }
 
-  // Уникальные непустые значения указанного поля из массива объектов — источник подсказок для <datalist>
   function fieldValues(list, key) {
     var seen = {};
     var result = [];
@@ -529,7 +624,6 @@
     }).join('') + '</datalist>';
   }
 
-  // Подсказки для поля "ID станка" — показывают не только ID, но и что это за станок
   function equipmentDatalist(listId) {
     var list = state.equipmentList || [];
     return '<datalist id="' + listId + '">' + list.map(function (e) {
