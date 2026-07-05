@@ -26,13 +26,15 @@
   .header { display: flex; justify-content: space-between; align-items: center; padding: 6px 0 14px; }
   .header-user-name { font-weight: 700; font-size: 16px; }
   .role { color: var(--hint); font-size: 13px; }
-  .header-logo-badge { height: 42px; flex: 0 0 auto; }
+  .header-logo-badge { height: 88px; flex: 0 0 auto; }
   .header-logo-badge img { height: 100%; width: auto; object-fit: contain; display: block; }
-  .tabs { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 12px; -webkit-overflow-scrolling: touch; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
   .tab-btn {
-    flex: 0 0 auto; padding: 8px 14px; border-radius: 20px; border: none;
-    background: var(--tab-pastel, var(--secondary-bg)); color: var(--tab-color, var(--text)); font-size: 14px; font-weight: 600;
+    flex: 1; padding: 13px 6px; border-radius: 14px; border: none;
+    background: var(--tab-pastel, var(--secondary-bg)); color: var(--tab-color, var(--text)); font-size: 13.5px; font-weight: 700;
+    display: flex; flex-direction: column; align-items: center; gap: 3px; line-height: 1.1;
   }
+  .tab-btn .tab-icon { font-size: 18px; }
   .tab-btn.active { background: var(--tab-color, var(--button)); color: #fff; }
   .card { background: #fff; border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
   .card-title { font-weight: 600; margin-bottom: 4px; }
@@ -268,10 +270,10 @@
       users: { color: '#00897b', pastel: '#d3f1ee' }
     };
     var tabs = [];
-    if (can('equipment.view')) tabs.push(['equipment', 'Главная']);
-    if (can('reports.view')) tabs.push(['reports', 'Отчеты']);
-    if (can('parts.view')) tabs.push(['parts', 'Запчасти']);
-    if (can('users.view')) tabs.push(['users', 'Пользователи']);
+    if (can('equipment.view')) tabs.push(['equipment', '🏠', 'Главная']);
+    if (can('reports.view')) tabs.push(['reports', '📄', 'Отчеты']);
+    if (can('parts.view')) tabs.push(['parts', '🔧', 'Запчасти']);
+    if (can('users.view')) tabs.push(['users', '👥', 'Пользователи']);
 
     app.innerHTML =
       '<div class="header"><div>' +
@@ -282,7 +284,8 @@
       '</div>' +
       '<div class="tabs">' + tabs.map(function (t) {
         var s = TAB_STYLES[t[0]];
-        return '<button class="tab-btn" data-tab="' + t[0] + '" style="--tab-color:' + s.color + ';--tab-pastel:' + s.pastel + '">' + t[1] + '</button>';
+        return '<button class="tab-btn" data-tab="' + t[0] + '" style="--tab-color:' + s.color + ';--tab-pastel:' + s.pastel + '">' +
+          '<span class="tab-icon">' + t[1] + '</span><span>' + t[2] + '</span></button>';
       }).join('') + '</div>' +
       '<div id="content"></div>';
 
@@ -345,9 +348,9 @@
     '<button class="mine-toggle' + (equipmentFilterState.mine ? ' active' : '') + '" id="mine-filter">👤 Мои станки</button>';
 
     content.innerHTML =
-      '<input type="text" class="search-input" id="global-search" placeholder="🔍 Быстрый поиск станков..." value="' + escapeHtml(equipmentFilterState.query) + '">' +
       dashboardHtml +
       buttonsHtml +
+      '<input type="text" class="search-input" id="global-search" placeholder="🔍 Быстрый поиск станков..." value="' + escapeHtml(equipmentFilterState.query) + '">' +
       '<div class="legend"><span><i style="background:#43a047"></i> Есть ответственный</span><span><i style="background:#e53935"></i> Нет ответственного</span></div>' +
       '<div class="list" id="eq-list"></div>';
 
