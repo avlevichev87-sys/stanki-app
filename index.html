@@ -485,6 +485,7 @@
     var content = document.getElementById('content');
     var f = eq || {};
     var list = state.equipmentList || [];
+    var alreadyResp = eq ? getResponsibles(eq).indexOf(state.fullName) !== -1 : false;
     content.innerHTML =
       '<button class="btn-back">← Назад</button>' +
       '<h2>' + (eq ? 'Редактирование оборудования' : 'Новое оборудование') + '</h2>' +
@@ -500,9 +501,8 @@
       formField('address', 'Адрес', f['Адрес'], false, 'dl-address') +
       '<button type="button" class="btn-secondary" id="pick-map-eq">📍 Указать на карте</button>' +
       formField('comment', 'Комментарий', f['Комментарий'], true) +
-      formField('resp1', 'Ответственный 1 (ФИО)', f['Ответственный 1'], false, 'dl-resp') +
-      formField('resp2', 'Ответственный 2 (ФИО)', f['Ответственный 2'], false, 'dl-resp') +
-      formField('resp3', 'Ответственный 3 (ФИО)', f['Ответственный 3'], false, 'dl-resp') +
+      '<div class="detail-row" style="border:none;"><span class="detail-label">Ответственные сейчас</span><span class="detail-value">' + (getResponsibles(f).join(', ') || 'не назначен') + '</span></div>' +
+      '<div class="field"><label><input type="checkbox" id="f-claimRespEq"' + (alreadyResp ? ' checked disabled' : '') + '> Стать ответственным за этот станок</label></div>' +
       photoField('eq-photo') +
       '<button class="btn-primary" id="save-eq">Сохранить</button>' +
       buildDatalist('dl-inv', fieldValues(list, 'Инвентарный номер')) +
@@ -512,18 +512,25 @@
       buildDatalist('dl-factory', fieldValues(list, 'Завод изготовитель')) +
       buildDatalist('dl-customer', fieldValues(list, 'Заказчик')) +
       buildDatalist('dl-contact', fieldValues(list, 'Контактное лицо')) +
-      buildDatalist('dl-address', fieldValues(list, 'Адрес')) +
-      buildDatalist('dl-resp', fieldValues(list, 'Ответственный 1').concat(fieldValues(list, 'Ответственный 2'), fieldValues(list, 'Ответственный 3')));
+      buildDatalist('dl-address', fieldValues(list, 'Адрес'));
 
-    content.querySelector('.btn-back').addEventListener('click', renderEquipment);
+    content.querySelector('.btn-back').addEventListener('click', function () {
+      eq ? openEquipmentDetail(eq['ID станка']) : renderEquipment();
+    });
     setupPhotoField('eq-photo');
     document.getElementById('pick-map-eq').addEventListener('click', function () { openMapPicker('address'); });
 
     document.getElementById('save-eq').addEventListener('click', function () {
-      var data = collectForm(['invNumber', 'ourNumber', 'type', 'model', 'year', 'factory', 'status', 'customer', 'contact', 'address', 'comment', 'resp1', 'resp2', 'resp3']);
+      var data = collectForm(['invNumber', 'ourNumber', 'type', 'model', 'year', 'factory', 'status', 'customer', 'contact', 'address', 'comment']);
+      var claim = document.getElementById('f-claimRespEq').checked && !alreadyResp;
       uploadPendingPhotos('eq-photo').then(function (fileIds) {
         if (fileIds.length) data.photoFileIds = fileIds;
         return eq ? call('updateEquipment', eq['ID станка'], data) : call('addEquipment', data);
+      }).then(function (res) {
+        if (claim) {
+          var eqId = eq ? eq['ID станка'] : res.id;
+          return call('claimResponsibility', eqId).catch(function () {}); // не критично, если не получится
+        }
       }).then(renderEquipment).catch(showError);
     });
   }
@@ -584,6 +591,7 @@
       formField('nextWorkDate', 'Дата следующих работ', '', false, null, 'date') +
       selectField('status', 'Статус', visibleStatuses().map(function (s) { return s.name; }), '') +
       '<div id="status-restrict-hint" style="font-size:12px;color:#e53935;margin:-6px 0 10px;"></div>' +
+      '<div class="field"><label><input type="checkbox" id="f-claimRespReport"> Стать ответственным за этот станок</label></div>' +
       photoField('rep-photo') +
       '<button class="btn-primary" id="save-report">Сохранить</button>' +
       buildDatalist('dl-ournum', fieldValues(eqList, 'Наш номер')) +
@@ -626,9 +634,12 @@
     document.getElementById('save-report').addEventListener('click', function () {
       var data = collectForm(['equipmentId', 'workDate', 'description', 'ourParts', 'customerParts', 'neededNextTime', 'neededFuture', 'plannedWork', 'nextWorkDate', 'status']);
       if (!data.equipmentId) { showError(new Error('Не удалось определить станок по «Наш номер» — проверьте значение')); return; }
+      var claim = document.getElementById('f-claimRespReport').checked;
       uploadPendingPhotos('rep-photo').then(function (fileIds) {
         if (fileIds.length) data.photoFileIds = fileIds;
         return call('addReport', data);
+      }).then(function () {
+        if (claim) return call('claimResponsibility', data.equipmentId).catch(function () {});
       }).then(renderReports).catch(showError);
     });
   }
