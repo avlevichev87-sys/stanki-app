@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Инженер-Сервис — База станков</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   :root {
     --bg: #ffffff;
@@ -131,6 +129,10 @@
 (function () {
   // !!! ВСТАВЬТЕ СЮДА ССЫЛКУ ВАШЕГО APPS SCRIPT WEB APP (заканчивается на /exec) !!!
   var API_URL = 'https://script.google.com/macros/s/AKfycbwp7LpPuphMwElBibGKx1lVXhsDgtdZboeGiIR8UB8cf-IGSkZ7hBJ472PzPvMcaBGYCA/exec';
+
+  // !!! ВСТАВЬТЕ СЮДА КЛЮЧ ЯНДЕКС.КАРТ (получить бесплатно: https://developer.tech.yandex.ru/services/) !!!
+  var YANDEX_MAPS_API_KEY = '3fae6ff4-11b2-497e-b156-c03428b2d011';
+  var YANDEX_GEOCODER_API_KEY = '83374ab8-6801-4747-9489-d135eb0e9814';
 
   var LOGO_ICON_B64 = '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646eimv5GhNAR/8ANrLTfDV1+O45Dyc+T/E/0l2Zbe+x6gbLO07gbjTYxH5o7Z9OXybg5xnHj9nyfetuhZKG8NumoXHWOtXs5w0p7UtGO+CSRhjQfBIz54tJCqdWnSiney1VvrFPTrUnnyRSqVSrJq13o7/STWvSnDL+5ngNt9TqTTokuAbt/txB3ZRRnjU1o+Rd8zy+ncnt2d5WZ6c07V3q3xUVBRSaP0gw5bTxZZXVo+r3eYmn59+Z+oyshtWizLco7xqCobdrxH3hAaW01Jn5QsPz/ruy44+XhZWtFidoXW5T/wCJ8885S/NLPklqb3DbPs9+p/1rlllGP5Y5c29DqW22UlnooqOhp46SliHFkUTeLWj8l20RaNtyd2b1JRVloERFBIREQBERAEREAREQBERAEREAREQBERAEREAREQBERAF8SRMmY5kjQ9juxa4ZBH5L7RAYrc9rdI3gudVadt7nuOS+KEROP5luCscqunnRslbTTU9uNJHG/nI1lRKS8g5ABLzgfXt+WPKk1FnU8diqWUKsl4swamAwtXOdKL8EYZHoCC32iSwWRv6PWh7f1tVRP/lcrvnhxzj5AuOTjsAOxXfoNE0dgtEdtsXGzQFw9eWGMOmlbg5+M/tEn7xB7Zxg4IyRFbliq0lZy43fV83fV9/gXI4WjF3UeFl0XJW0Xd4nl2XTdt05RvprbSspI5HF73M7ve4+XOce7nfiSV3aSjhoYuELODSckkklx+rie5P4nuudFYlOU23J3uX4wjBJRVrBERUFYREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQBERAEREAREQH//2Q==';
 
@@ -857,14 +859,32 @@
     });
   }
 
-  // ---------- Карта выбора адреса (OpenStreetMap, без API-ключей) ----------
+  // ---------- Карта выбора адреса (Яндекс.Карты, загружается по требованию) ----------
+  var yandexMapsLoadPromise = null;
+  function loadYandexMapsScript() {
+    if (yandexMapsLoadPromise) return yandexMapsLoadPromise;
+    yandexMapsLoadPromise = new Promise(function (resolve, reject) {
+      if (window.ymaps) { window.ymaps.ready(resolve); return; }
+      var script = document.createElement('script');
+      script.src = 'https://api-maps.yandex.ru/2.1/?apikey=' + encodeURIComponent(YANDEX_MAPS_API_KEY) + '&lang=ru_RU';
+      script.onload = function () { window.ymaps.ready(resolve); };
+      script.onerror = function () { reject(new Error('Не удалось загрузить Яндекс.Карты — проверьте API-ключ и подключение к интернету')); };
+      document.head.appendChild(script);
+    });
+    return yandexMapsLoadPromise;
+  }
+
   function openMapPicker(fieldId) {
+    if (YANDEX_MAPS_API_KEY.indexOf('ВСТАВЬТЕ') === 0) {
+      showError(new Error('Разработчик не указал YANDEX_MAPS_API_KEY в app-static.html'));
+      return;
+    }
     var overlay = document.createElement('div');
     overlay.className = 'map-modal';
     overlay.innerHTML =
       '<div class="map-modal-inner">' +
         '<div class="map-modal-header">Укажите точку на карте<button class="map-modal-close" id="map-close">✕</button></div>' +
-        '<div id="map-picker-el"></div>' +
+        '<div id="map-picker-el"><div class="loading">Загрузка карты...</div></div>' +
         '<div class="map-modal-footer">' +
           '<div id="map-address-preview" class="map-address-preview">Нажмите на карту, чтобы поставить метку</div>' +
           '<button class="btn-primary" id="map-confirm" disabled>Подтвердить адрес</button>' +
@@ -872,40 +892,12 @@
       '</div>';
     document.body.appendChild(overlay);
 
-    var marker = null;
     var resolvedAddress = '';
-    var map = L.map('map-picker-el').setView([55.7558, 37.6176], 11);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap', maxZoom: 19
-    }).addTo(map);
-
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(function (pos) {
-        map.setView([pos.coords.latitude, pos.coords.longitude], 14);
-      }, function () {}, { timeout: 4000 });
-    }
-
-    map.on('click', function (e) {
-      var lat = e.latlng.lat, lon = e.latlng.lng;
-      if (marker) marker.setLatLng(e.latlng); else marker = L.marker(e.latlng).addTo(map);
-      document.getElementById('map-address-preview').textContent = 'Определяем адрес...';
-      document.getElementById('map-confirm').disabled = true;
-      fetch('https://nominatim.openstreetmap.org/reverse?format=json&lat=' + lat + '&lon=' + lon + '&zoom=18&addressdetails=1')
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          resolvedAddress = data.display_name || (lat.toFixed(5) + ', ' + lon.toFixed(5));
-          document.getElementById('map-address-preview').textContent = resolvedAddress;
-          document.getElementById('map-confirm').disabled = false;
-        })
-        .catch(function () {
-          resolvedAddress = lat.toFixed(5) + ', ' + lon.toFixed(5);
-          document.getElementById('map-address-preview').textContent = resolvedAddress + ' (точный адрес не определён)';
-          document.getElementById('map-confirm').disabled = false;
-        });
-    });
+    var placemark = null;
+    var yMap = null;
 
     function closeMapModal() {
-      map.remove();
+      if (yMap) yMap.destroy();
       document.body.removeChild(overlay);
     }
     document.getElementById('map-close').addEventListener('click', closeMapModal);
@@ -913,6 +905,47 @@
       var input = document.getElementById('f-' + fieldId);
       if (input) input.value = resolvedAddress;
       closeMapModal();
+    });
+
+    loadYandexMapsScript().then(function () {
+      var ymaps = window.ymaps;
+      document.getElementById('map-picker-el').innerHTML = '';
+      yMap = new ymaps.Map('map-picker-el', {
+        center: [55.7558, 37.6176],
+        zoom: 10,
+        controls: ['zoomControl', 'geolocationControl']
+      });
+
+      function placeMarkAndGeocode(coords) {
+        if (placemark) { placemark.geometry.setCoordinates(coords); }
+        else { placemark = new ymaps.Placemark(coords, {}, { preset: 'islands#redDotIcon' }); yMap.geoObjects.add(placemark); }
+        document.getElementById('map-address-preview').textContent = 'Определяем адрес...';
+        document.getElementById('map-confirm').disabled = true;
+        // HTTP Геокодер — отдельный продукт со своим ключом, не связан с ключом карты
+        var geocodeUrl = 'https://geocode-maps.yandex.ru/1.x/?apikey=' + encodeURIComponent(YANDEX_GEOCODER_API_KEY) +
+          '&format=json&results=1&geocode=' + coords[1] + ',' + coords[0];
+        fetch(geocodeUrl).then(function (r) { return r.json(); }).then(function (data) {
+          var members = data.response && data.response.GeoObjectCollection && data.response.GeoObjectCollection.featureMember;
+          var text = members && members.length ? members[0].GeoObject.metaDataProperty.GeocoderMetaData.text : null;
+          resolvedAddress = text || (coords[0].toFixed(5) + ', ' + coords[1].toFixed(5));
+          document.getElementById('map-address-preview').textContent = resolvedAddress;
+          document.getElementById('map-confirm').disabled = false;
+        }).catch(function () {
+          resolvedAddress = coords[0].toFixed(5) + ', ' + coords[1].toFixed(5);
+          document.getElementById('map-address-preview').textContent = resolvedAddress + ' (точный адрес не определён)';
+          document.getElementById('map-confirm').disabled = false;
+        });
+      }
+
+      yMap.events.add('click', function (e) { placeMarkAndGeocode(e.get('coords')); });
+
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(function (pos) {
+          yMap.setCenter([pos.coords.latitude, pos.coords.longitude], 14);
+        }, function () {}, { timeout: 4000 });
+      }
+    }).catch(function (err) {
+      document.getElementById('map-picker-el').innerHTML = '<div class="error" style="padding:20px;">' + escapeHtml(err.message) + '</div>';
     });
   }
 
