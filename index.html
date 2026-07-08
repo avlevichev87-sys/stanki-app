@@ -68,6 +68,9 @@
   .resp-flag { padding: 8px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; margin: 10px 0; }
   .resp-flag.ok { background: #e3f5e6; color: #2e7d32; }
   .resp-flag.warn { background: #fdeaea; color: #c62828; }
+  .claim-box { background: #e8f4fd; border: 1.5px solid #2481cc; border-radius: 12px; padding: 12px 14px; margin: 14px 0; }
+  .claim-box label { font-weight: 700; font-size: 14.5px; display: flex; align-items: center; gap: 8px; }
+  .claim-box input[type="checkbox"] { width: 18px; height: 18px; }
   .hist-entered { font-size: 11px; color: var(--hint); margin-top: 4px; }
   .photo-preview { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .photo-chip { background: #fff; border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; font-size: 12px; }
@@ -488,23 +491,32 @@
     var f = eq || {};
     var list = state.equipmentList || [];
     var alreadyResp = eq ? getResponsibles(eq).indexOf(state.fullName) !== -1 : false;
+    var yearVal = f['Год выпуска'] == null ? '' : String(f['Год выпуска']);
+    var thisYear = new Date().getFullYear();
     content.innerHTML =
       '<button class="btn-back">← Назад</button>' +
       '<h2>' + (eq ? 'Редактирование оборудования' : 'Новое оборудование') + '</h2>' +
-      formField('invNumber', 'Инвентарный номер', f['Инвентарный номер'], false, 'dl-inv') +
       formField('ourNumber', 'Наш номер', f['Наш номер'], false, 'dl-our') +
       formField('type', 'Тип оборудования', f['Тип оборудования'], false, 'dl-type') +
       formField('model', 'Модель', f['Модель'], false, 'dl-model') +
-      formField('year', 'Год выпуска', f['Год выпуска'], false, null, 'number') +
+      '<div class="field"><label>Год выпуска</label><input id="f-year" type="number" min="1920" max="' + (thisYear + 1) + '" value="' + escapeHtml(yearVal) + '"></div>' +
       formField('factory', 'Завод изготовитель', f['Завод изготовитель'], false, 'dl-factory') +
       selectField('status', 'Статус', visibleStatuses().map(function (s) { return s.name; }), f['Статус'] || '') +
-      formField('customer', 'Заказчик', f['Заказчик'], false, 'dl-customer') +
-      formField('contact', 'Контактное лицо', f['Контактное лицо'], false, 'dl-contact') +
-      formField('address', 'Адрес', f['Адрес'], false, 'dl-address') +
-      '<button type="button" class="btn-secondary" id="pick-map-eq">📍 Указать на карте</button>' +
       formField('comment', 'Комментарий', f['Комментарий'], true) +
-      '<div class="detail-row" style="border:none;"><span class="detail-label">Ответственные сейчас</span><span class="detail-value">' + (getResponsibles(f).join(', ') || 'не назначен') + '</span></div>' +
-      '<div class="field"><label><input type="checkbox" id="f-claimRespEq"' + (alreadyResp ? ' checked disabled' : '') + '> Стать ответственным за этот станок</label></div>' +
+      '<button type="button" class="btn-secondary" id="toggle-extra">▸ Доп. информация</button>' +
+      '<div id="extra-fields" style="display:none;">' +
+        formField('invNumber', 'Инвентарный номер', f['Инвентарный номер'], false, 'dl-inv') +
+        formField('customer', 'Заказчик', f['Заказчик'], false, 'dl-customer') +
+        formField('contact', 'Контактное лицо', f['Контактное лицо'], false, 'dl-contact') +
+        formField('address', 'Адрес', f['Адрес'], false, 'dl-address') +
+        '<button type="button" class="btn-secondary" id="pick-map-eq">📍 Указать на карте</button>' +
+        '<div class="field"><label>Фотография шильдика</label>' +
+        '<input type="file" accept="image/*" id="nameplate-photo-input">' +
+        '<div class="photo-preview" id="nameplate-photo-preview"></div></div>' +
+      '</div>' +
+      '<div class="claim-box"><label><input type="checkbox" id="f-claimRespEq"' + (alreadyResp ? ' checked disabled' : '') + '> 👤 Стать ответственным за этот станок</label>' +
+      '<div class="detail-row" style="border:none;padding-top:6px;"><span class="detail-label">Ответственные сейчас</span><span class="detail-value">' + (getResponsibles(f).join(', ') || 'не назначен') + '</span></div>' +
+      '</div>' +
       photoField('eq-photo') +
       '<button class="btn-primary" id="save-eq">Сохранить</button>' +
       buildDatalist('dl-inv', fieldValues(list, 'Инвентарный номер')) +
@@ -522,11 +534,28 @@
     setupPhotoField('eq-photo');
     document.getElementById('pick-map-eq').addEventListener('click', function () { openMapPicker('address'); });
 
+    var extraOpen = false;
+    document.getElementById('toggle-extra').addEventListener('click', function () {
+      extraOpen = !extraOpen;
+      document.getElementById('extra-fields').style.display = extraOpen ? 'block' : 'none';
+      this.textContent = (extraOpen ? '▾' : '▸') + ' Доп. информация';
+    });
+
+    var nameplateInput = document.getElementById('nameplate-photo-input');
+    nameplateInput.addEventListener('change', function () {
+      var file = nameplateInput.files[0];
+      document.getElementById('nameplate-photo-preview').innerHTML = file ? '<div class="photo-chip">' + escapeHtml(file.name) + '</div>' : '';
+    });
+
     document.getElementById('save-eq').addEventListener('click', function () {
       var data = collectForm(['invNumber', 'ourNumber', 'type', 'model', 'year', 'factory', 'status', 'customer', 'contact', 'address', 'comment']);
       var claim = document.getElementById('f-claimRespEq').checked && !alreadyResp;
-      uploadPendingPhotos('eq-photo').then(function (fileIds) {
-        if (fileIds.length) data.photoFileIds = fileIds;
+      var nameplateFile = nameplateInput.files[0];
+      var nameplateUpload = nameplateFile ? fileToUpload(nameplateFile) : Promise.resolve(null);
+
+      Promise.all([uploadPendingPhotos('eq-photo'), nameplateUpload]).then(function (res) {
+        if (res[0].length) data.photoFileIds = res[0];
+        if (res[1]) data.nameplatePhotoFileId = res[1];
         return eq ? call('updateEquipment', eq['ID станка'], data) : call('addEquipment', data);
       }).then(function (res) {
         if (claim) {
