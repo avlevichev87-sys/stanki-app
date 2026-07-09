@@ -548,21 +548,24 @@
     });
 
     document.getElementById('save-eq').addEventListener('click', function () {
-      var data = collectForm(['invNumber', 'ourNumber', 'type', 'model', 'year', 'factory', 'status', 'customer', 'contact', 'address', 'comment']);
-      var claim = document.getElementById('f-claimRespEq').checked && !alreadyResp;
-      var nameplateFile = nameplateInput.files[0];
-      var nameplateUpload = nameplateFile ? fileToUpload(nameplateFile) : Promise.resolve(null);
+      var btn = this;
+      guardedSave(btn, function () {
+        var data = collectForm(['invNumber', 'ourNumber', 'type', 'model', 'year', 'factory', 'status', 'customer', 'contact', 'address', 'comment']);
+        var claim = document.getElementById('f-claimRespEq').checked && !alreadyResp;
+        var nameplateFile = nameplateInput.files[0];
+        var nameplateUpload = nameplateFile ? fileToUpload(nameplateFile) : Promise.resolve(null);
 
-      Promise.all([uploadPendingPhotos('eq-photo'), nameplateUpload]).then(function (res) {
-        if (res[0].length) data.photoFileIds = res[0];
-        if (res[1]) data.nameplatePhotoFileId = res[1];
-        return eq ? call('updateEquipment', eq['ID станка'], data) : call('addEquipment', data);
-      }).then(function (res) {
-        if (claim) {
-          var eqId = eq ? eq['ID станка'] : res.id;
-          return call('claimResponsibility', eqId).catch(function () {}); // не критично, если не получится
-        }
-      }).then(renderEquipment).catch(showError);
+        return Promise.all([uploadPendingPhotos('eq-photo'), nameplateUpload]).then(function (res) {
+          if (res[0].length) data.photoFileIds = res[0];
+          if (res[1]) data.nameplatePhotoFileId = res[1];
+          return eq ? call('updateEquipment', eq['ID станка'], data) : call('addEquipment', data);
+        }).then(function (res) {
+          if (claim) {
+            var eqId = eq ? eq['ID станка'] : res.id;
+            return call('claimResponsibility', eqId).catch(function () {}); // не критично, если не получится
+          }
+        }).then(renderEquipment);
+      });
     });
   }
 
@@ -663,15 +666,18 @@
     if (presetOurNumber) matchByOurNumber();
 
     document.getElementById('save-report').addEventListener('click', function () {
+      var btn = this;
       var data = collectForm(['equipmentId', 'workDate', 'description', 'ourParts', 'customerParts', 'neededNextTime', 'neededFuture', 'plannedWork', 'nextWorkDate', 'status']);
       if (!data.equipmentId) { showError(new Error('Не удалось определить станок по «Наш номер» — проверьте значение')); return; }
       var claim = document.getElementById('f-claimRespReport').checked;
-      uploadPendingPhotos('rep-photo').then(function (fileIds) {
-        if (fileIds.length) data.photoFileIds = fileIds;
-        return call('addReport', data);
-      }).then(function () {
-        if (claim) return call('claimResponsibility', data.equipmentId).catch(function () {});
-      }).then(renderReports).catch(showError);
+      guardedSave(btn, function () {
+        return uploadPendingPhotos('rep-photo').then(function (fileIds) {
+          if (fileIds.length) data.photoFileIds = fileIds;
+          return call('addReport', data);
+        }).then(function () {
+          if (claim) return call('claimResponsibility', data.equipmentId).catch(function () {});
+        }).then(renderReports);
+      });
     });
   }
 
@@ -734,9 +740,10 @@
     document.getElementById('f-ourNumber').addEventListener('input', matchByOurNumber);
 
     document.getElementById('save-part').addEventListener('click', function () {
+      var btn = this;
       var data = collectForm(['name', 'qty', 'equipmentId', 'address']);
       if (!data.equipmentId) { showError(new Error('Не удалось определить станок по «Наш номер» — проверьте значение')); return; }
-      call('addPart', data).then(renderParts).catch(showError);
+      guardedSave(btn, function () { return call('addPart', data).then(renderParts); });
     });
   }
 
@@ -778,9 +785,10 @@
       '<button class="btn-primary" id="save-user">Сохранить</button>';
     content.querySelector('.btn-back').addEventListener('click', renderUsers);
     document.getElementById('save-user').addEventListener('click', function () {
+      var btn = this;
       var data = collectForm(['telegramId', 'fullName']);
       data.role = document.getElementById('f-role').value;
-      call('addUser', data).then(renderUsers).catch(showError);
+      guardedSave(btn, function () { return call('addUser', data).then(renderUsers); });
     });
   }
 
@@ -837,6 +845,20 @@
 
   function detailRow(label, value) {
     return '<div class="detail-row"><span class="detail-label">' + label + '</span><span class="detail-value">' + escapeHtml(value || '-') + '</span></div>';
+  }
+
+  // Блокирует кнопку сразу после клика (показывает "Сохранение..."), чтобы не создавались дублирующие строки
+  // при нескольких быстрых нажатиях. runAsync должен вернуть Promise.
+  function guardedSave(btn, runAsync) {
+    if (btn.disabled) return; // уже идёт сохранение — игнорируем повторный клик
+    var originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Сохранение...';
+    runAsync().catch(function (err) {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      showError(err);
+    });
   }
 
   function collectForm(ids) {
