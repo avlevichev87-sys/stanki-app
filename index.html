@@ -70,7 +70,7 @@
   .resp-flag.warn { background: #fdeaea; color: #c62828; }
   .claim-box { background: #e8f4fd; border: 1.5px solid #2481cc; border-radius: 12px; padding: 12px 14px; margin: 14px 0; }
   .claim-box label { font-weight: 700; font-size: 14.5px; display: flex; align-items: center; gap: 8px; }
-  .claim-box input[type="checkbox"] { width: 18px; height: 18px; }
+  .claim-box input[type="checkbox"] { width: 26px; height: 26px; flex: 0 0 auto; }
   .hist-entered { font-size: 11px; color: var(--hint); margin-top: 4px; }
   .photo-preview { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .photo-chip { background: #fff; border: 1px solid var(--border); padding: 4px 8px; border-radius: 6px; font-size: 12px; }
@@ -449,16 +449,10 @@
         '<button class="btn-back">← Назад</button>' +
         '<h2>' + escapeHtml(eq['Тип оборудования'] || '') + ' ' + escapeHtml(eq['Модель'] || '') + '</h2>' +
         (eq['Статус'] ? '<span class="status-pill" style="background:' + statusColorFor(eq['Статус']) + '">' + escapeHtml(eq['Статус'].toUpperCase()) + '</span>' : '') +
-        detailRow('Наш номер', eq['Наш номер']) +
-        detailRow('Инвентарный №', eq['Инвентарный номер']) +
-        detailRow('Год выпуска', eq['Год выпуска']) +
-        detailRow('Завод', eq['Завод изготовитель']) +
-        detailRow('Заказчик', eq['Заказчик']) +
-        detailRow('Контакт', eq['Контактное лицо']) +
-        detailRow('Адрес', eq['Адрес']) +
-        detailRow('Комментарий', eq['Комментарий']) +
+        renderAllFields(eq, ['ID станка', 'Тип оборудования', 'Модель', 'Статус', 'Фото', 'Фото шильдика']) +
+        (eq['Фото'] ? detailRow('Фото', eq['Фото'].split(',').filter(Boolean).length + ' шт. (в Telegram-канале)') : '') +
+        (eq['Фото шильдика'] ? detailRow('Фото шильдика', 'загружено ✓') : '') +
         detailRow('Ответственные', responsibles.join(', ') || 'не назначен') +
-        detailRow('Добавлено в базу', eq['Дата добавления']) +
         '<div class="' + (hasResp ? 'resp-flag ok' : 'resp-flag warn') + '">' + (hasResp ? '✓ Ответственный назначен' : '⚠ Ответственный не назначен') + '</div>' +
         (can('equipment.edit') ? '<button class="btn-primary" id="detail-edit-eq">Редактировать</button>' : '') +
         (can('reports.create') ? '<button class="btn-primary" id="detail-add-report">+ Добавить отчет</button>' : '') +
@@ -476,6 +470,10 @@
   function renderHistoryEntry(r) {
     var d = parseDateParts(r['Дата проведения работ'] || r['Дата записи отчета']);
     var status = r['Статус'] || '';
+    var extraFields = renderAllFields(r, [
+      'ID Станка', 'Наш номер', 'Кто заполнил', 'Дата записи отчета', 'Статус',
+      'Описание работ', 'Наши запчасти', 'Запчасти заказчика', 'Фото'
+    ]);
     return '<div class="hist-entry">' +
       '<div class="hist-date-badge">' + escapeHtml(d.day) + '<span>' + escapeHtml(d.month) + '</span></div>' +
       '<div class="hist-content">' +
@@ -484,6 +482,8 @@
         '</div>' +
         (r['Описание работ'] ? '<div class="hist-desc">' + escapeHtml(r['Описание работ']) + '</div>' : '') +
         ((r['Наши запчасти'] || r['Запчасти заказчика']) ? '<div class="hist-parts">🔧 Запчасти: Наши: ' + escapeHtml(r['Наши запчасти'] || '—') + ' | Заказчика: ' + escapeHtml(r['Запчасти заказчика'] || '—') + '</div>' : '') +
+        (r['Фото'] ? '<div class="hist-parts">📷 Фото: ' + r['Фото'].split(',').filter(Boolean).length + ' шт.</div>' : '') +
+        extraFields +
         '<div class="hist-entered">Внесено: ' + escapeHtml(r['Дата записи отчета'] || '—') + '</div>' +
         (can('reports.create') ? '<button class="btn-secondary claim-resp-btn" data-eqid="' + escapeHtml(r['ID Станка']) + '">👤 Стать ответственным</button>' : '') +
       '</div>' +
@@ -585,7 +585,7 @@
       eqList.forEach(function (e) { eqById[e['ID станка']] = e; });
       list.forEach(function (r) {
         var eq = eqById[r['ID Станка']];
-        r._ourNumber = eq ? (eq['Наш номер'] || '') : '';
+        r._ourNumber = r['Наш номер'] || (eq ? (eq['Наш номер'] || '') : '');
         r._eqLabel = eq ? [eq['Тип оборудования'], eq['Модель']].filter(Boolean).join(' ') : '';
       });
       state.reportsList = list;
@@ -619,6 +619,7 @@
       '<div class="field"><label>Станок (определяется автоматически)</label>' +
       '<input id="f-equipmentId" value="' + escapeHtml(equipmentId || '') + '" readonly style="opacity:.65;"></div>' +
       '<div id="eq-match-hint" style="font-size:12px;color:var(--hint);margin:-6px 0 10px;"></div>' +
+      '<div class="claim-box"><label><input type="checkbox" id="f-claimRespReport"> 👤 Стать ответственным за этот станок</label></div>' +
       formField('workDate', 'Дата проведения работ', '', false, null, 'date') +
       formField('description', 'Описание работ', '', true) +
       formField('ourParts', 'Наши запчасти', '', true, 'dl-ourparts') +
@@ -629,7 +630,6 @@
       formField('nextWorkDate', 'Дата следующих работ', '', false, null, 'date') +
       selectField('status', 'Статус', visibleStatuses().map(function (s) { return s.name; }), '') +
       '<div id="status-restrict-hint" style="font-size:12px;color:#e53935;margin:-6px 0 10px;"></div>' +
-      '<div class="field"><label><input type="checkbox" id="f-claimRespReport"> Стать ответственным за этот станок</label></div>' +
       (can('reports.financial') ?
         '<div class="claim-box" style="border-color:#43a047;background:#f0f8f0;">' +
           '<h3 style="margin-top:0;">Финансовая информация</h3>' +
@@ -869,6 +869,18 @@
         (e['Инвентарный номер'] ? ' (инв. № ' + e['Инвентарный номер'] + ')' : '');
       return '<option value="' + escapeHtml(e['ID станка']) + '">' + escapeHtml(label) + '</option>';
     }).join('') + '</datalist>';
+  }
+
+  // Показывает ВСЕ непустые поля объекта, кроме явно перечисленных в exclude — так в карточки
+  // автоматически попадают любые новые столбцы, которые появятся в таблице в будущем
+  function renderAllFields(obj, exclude) {
+    return Object.keys(obj).filter(function (k) {
+      if (exclude.indexOf(k) !== -1) return false;
+      if (/^Ответственный \d+$/.test(k)) return false;
+      if (k === '_row' || k.charAt(0) === '_') return false;
+      var v = obj[k];
+      return v !== '' && v != null;
+    }).map(function (k) { return detailRow(k, obj[k]); }).join('');
   }
 
   function detailRow(label, value) {
