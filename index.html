@@ -721,7 +721,11 @@
       if (can('parts.create')) html += '<button class="btn-primary" id="add-part">+ Заявка на запчасть</button>';
       html += '<div class="list">' + (list.length ? list.map(function (p) {
         return '<div class="card"><div class="card-title">' + escapeHtml(p['Наименование']) + ' × ' + escapeHtml(p['Количество']) + '</div>' +
-          '<div class="card-sub">Станок ' + escapeHtml(p['ID станка'] || '') + ' · ' + escapeHtml(p['Адрес'] || '') + '</div></div>';
+          '<div class="card-sub">Наш № ' + escapeHtml(p['Наш номер'] || '—') + ' · Станок ' + escapeHtml(p['ID станка'] || '') + '</div>' +
+          '<div class="card-sub">Заказал: ' + escapeHtml(p['Кто заказал'] || '—') + '</div>' +
+          (p['Дата доставки'] ? '<div class="card-sub">Нужно к: ' + escapeHtml(p['Дата доставки']) + '</div>' : '') +
+          (p['Адрес'] ? '<div class="card-sub">Адрес: ' + escapeHtml(p['Адрес']) + '</div>' : '') +
+          '</div>';
       }).join('') : '<div class="empty">Заявок нет</div>') + '</div>';
       content.innerHTML = html;
       if (can('parts.create')) document.getElementById('add-part').addEventListener('click', openPartForm);
@@ -743,6 +747,7 @@
       '<div id="part-match-hint" style="font-size:12px;color:var(--hint);margin:-6px 0 10px;"></div>' +
       formField('address', 'Адрес', '', false, 'dl-partaddr') +
       '<button type="button" class="btn-secondary" id="pick-map-part">📍 Указать на карте</button>' +
+      formField('deliveryDate', 'Нужна к дате', '', false, null, 'date') +
       '<button class="btn-primary" id="save-part">Сохранить</button>' +
       buildDatalist('dl-partname', fieldValues(parts, 'Наименование')) +
       buildDatalist('dl-ournum2', fieldValues(eqList, 'Наш номер')) +
@@ -769,7 +774,7 @@
 
     document.getElementById('save-part').addEventListener('click', function () {
       var btn = this;
-      var data = collectForm(['name', 'qty', 'equipmentId', 'address']);
+      var data = collectForm(['name', 'qty', 'equipmentId', 'address', 'deliveryDate']);
       if (!data.equipmentId) { showError(new Error('Не удалось определить станок по «Наш номер» — проверьте значение')); return; }
       guardedSave(btn, function () { return call('addPart', data).then(renderParts); });
     });
