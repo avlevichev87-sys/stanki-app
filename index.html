@@ -283,11 +283,13 @@
       equipment: { color: '#2481cc', pastel: '#dceefb' },
       reports: { color: '#fb8c00', pastel: '#ffe8cc' },
       parts: { color: '#8e24aa', pastel: '#f1dcf5' },
-      users: { color: '#00897b', pastel: '#d3f1ee' }
+      users: { color: '#00897b', pastel: '#d3f1ee' },
+      shift: { color: '#43a047', pastel: '#dcf3df' }
     };
     var tabs = [];
     if (can('equipment.view')) tabs.push(['equipment', '🏠', 'Главная']);
     if (can('reports.view')) tabs.push(['reports', '📄', 'Отчеты']);
+    if (can('reports.create')) tabs.push(['shift', '⏱', 'Смена']);
     if (can('parts.view')) tabs.push(['parts', '🔧', 'Запчасти']);
     if (can('users.view')) tabs.push(['users', '👥', 'Пользователи']);
 
@@ -317,6 +319,7 @@
     });
     if (tab === 'equipment') renderEquipment();
     else if (tab === 'reports') renderReports();
+    else if (tab === 'shift') renderShiftTab();
     else if (tab === 'parts') renderParts();
     else if (tab === 'users') renderUsers();
   }
@@ -513,7 +516,10 @@
         formField('customer', 'Заказчик', f['Заказчик'], false, 'dl-customer') +
         formField('contact', 'Контактное лицо', f['Контактное лицо'], false, 'dl-contact') +
         formField('address', 'Адрес', f['Адрес'], false, 'dl-address') +
+        '<input type="hidden" id="f-eqlat" value="' + escapeHtml(f['Широта'] || '') + '">' +
+        '<input type="hidden" id="f-eqlon" value="' + escapeHtml(f['Долгота'] || '') + '">' +
         '<button type="button" class="btn-secondary" id="pick-map-eq">📍 Указать на карте</button>' +
+        (f['Широта'] && f['Долгота'] ? '<div style="font-size:12px;color:var(--hint);margin-top:4px;">📌 Координаты сохранены</div>' : '') +
         '<div class="field"><label>Фотография шильдика</label>' +
         '<input type="file" accept="image/*" id="nameplate-photo-input">' +
         '<div class="photo-preview" id="nameplate-photo-preview"></div></div>' +
@@ -536,7 +542,7 @@
       eq ? openEquipmentDetail(eq['ID станка']) : renderEquipment();
     });
     setupPhotoField('eq-photo');
-    document.getElementById('pick-map-eq').addEventListener('click', function () { openMapPicker('address'); });
+    document.getElementById('pick-map-eq').addEventListener('click', function () { openMapPicker('address', 'f-eqlat', 'f-eqlon'); });
 
     var extraOpen = false;
     document.getElementById('toggle-extra').addEventListener('click', function () {
@@ -555,6 +561,8 @@
       var btn = this;
       guardedSave(btn, function () {
         var data = collectForm(['invNumber', 'ourNumber', 'type', 'model', 'year', 'factory', 'status', 'customer', 'contact', 'address', 'comment']);
+        data.lat = document.getElementById('f-eqlat').value;
+        data.lon = document.getElementById('f-eqlon').value;
         var claim = document.getElementById('f-claimRespEq').checked && !alreadyResp;
         var nameplateFile = nameplateInput.files[0];
         var nameplateUpload = nameplateFile ? fileToUpload(nameplateFile) : Promise.resolve(null);
@@ -708,6 +716,124 @@
         }).then(function () {
           if (claim) return call('claimResponsibility', data.equipmentId).catch(function () {});
         }).then(renderReports);
+      });
+    });
+  }
+
+  // ---------- Смена ----------
+  function getGeolocation() {
+    return new Promise(function (resolve) {
+      if (!navigator.geolocation) { resolve(null); return; }
+      navigator.geolocation.getCurrentPosition(function (pos) {
+        resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+      }, function () { resolve(null); }, { timeout: 8000, enableHighAccuracy: true });
+    });
+  }
+
+  function renderShiftTab() {
+    var content = document.getElementById('content');
+    content.innerHTML = '<div class="loading">Загрузка...</div>';
+    Promise.all([call('getMyOpenShift'), call('getEquipmentList')]).then(function (res) {
+      state.equipmentList = res[1];
+      if (res[0]) renderEndShiftView(res[0]);
+      else renderStartShiftView();
+    }).catch(showError);
+  }
+
+  function renderEndShiftView(shift) {
+    var content = document.getElementById('content');
+    content.innerHTML =
+      '<div class="claim-box" style="border-color:#43a047;background:#f0f8f0;">' +
+        '<h2 style="margin-top:0;">🟢 Смена открыта</h2>' +
+        detailRow('Начата', shift['Начало (время)']) +
+        (shift['Адрес'] ? detailRow('Объект', shift['Адрес']) : '') +
+        detailRow('Геолокация при начале', shift['Совпадение начала']) +
+      '</div>' +
+      '<button class="btn-primary" id="end-shift-btn" style="background:#e53935;">🔴 Завершить смену</button>' +
+      '<div id="shift-gps-status" style="font-size:13px;color:var(--hint);margin-top:10px;text-align:center;"></div>';
+
+    document.getElementById('end-shift-btn').addEventListener('click', function () {
+      var btn = this;
+      guardedSave(btn, function () {
+        document.getElementById('shift-gps-status').textContent = '📡 Определяем вашу геолокацию...';
+        return getGeolocation().then(function (geo) {
+          var data = {
+            lat: geo ? geo.lat : '', lon: geo ? geo.lon : '',
+            targetLat: shift['Широта начала'] || '', targetLon: shift['Долгота начала'] || ''
+          };
+          return call('endShift', data);
+        }).then(function (res) {
+          if (tg && tg.showAlert) tg.showAlert('Смена завершена.\n' + res.matchLabel); else alert('Смена завершена. ' + res.matchLabel);
+          renderShiftTab();
+        });
+      });
+    });
+  }
+
+  function renderStartShiftView() {
+    var content = document.getElementById('content');
+    var eqList = state.equipmentList || [];
+    content.innerHTML =
+      '<h2>Начать смену</h2>' +
+      '<div style="font-size:13px;color:var(--hint);margin-bottom:12px;">Выберите объект (по «Наш номер») — адрес подставится сам, либо укажите точку на карте вручную.</div>' +
+      formField('shiftOurNumber', 'Наш номер станка (опционально)', '', false, 'dl-shift-ournum') +
+      '<div class="field"><label>Адрес объекта</label><input id="f-shiftAddress" readonly style="opacity:.65;"></div>' +
+      '<input type="hidden" id="f-shiftLat"><input type="hidden" id="f-shiftLon">' +
+      '<button type="button" class="btn-secondary" id="pick-map-shift">📍 Указать вручную на карте</button>' +
+      '<div id="shift-match-hint" style="font-size:12px;color:var(--hint);margin:6px 0 10px;"></div>' +
+      '<button class="btn-primary" id="start-shift-btn" style="background:#43a047;">🟢 Начать смену</button>' +
+      '<div id="shift-gps-status" style="font-size:13px;color:var(--hint);margin-top:10px;text-align:center;"></div>' +
+      buildDatalist('dl-shift-ournum', fieldValues(eqList, 'Наш номер'));
+
+    var selectedEquipmentId = '';
+
+    document.getElementById('f-shiftOurNumber').addEventListener('input', function () {
+      var val = this.value.trim();
+      var match = eqList.find(function (e) { return String(e['Наш номер'] || '').toLowerCase() === val.toLowerCase(); });
+      var hint = document.getElementById('shift-match-hint');
+      if (match) {
+        selectedEquipmentId = match['ID станка'];
+        document.getElementById('f-shiftAddress').value = match['Адрес'] || '(у станка не указан адрес)';
+        document.getElementById('f-shiftLat').value = match['Широта'] || '';
+        document.getElementById('f-shiftLon').value = match['Долгота'] || '';
+        hint.textContent = match['Широта'] && match['Долгота'] ? '✓ Координаты объекта найдены — будет сверка геолокации' : '⚠ У объекта нет сохранённых координат — сверка геолокации будет недоступна';
+      } else {
+        selectedEquipmentId = '';
+        document.getElementById('f-shiftAddress').value = '';
+        document.getElementById('f-shiftLat').value = '';
+        document.getElementById('f-shiftLon').value = '';
+        hint.textContent = val ? 'Станок с таким "Наш номер" не найден' : '';
+      }
+    });
+
+    document.getElementById('pick-map-shift').addEventListener('click', function () {
+      openMapPicker('shiftAddress', 'f-shiftLat', 'f-shiftLon', function () {
+        selectedEquipmentId = ''; // ручной выбор точки — не привязан к конкретному станку
+        document.getElementById('shift-match-hint').textContent = '✓ Координаты выбраны вручную на карте';
+      });
+    });
+
+    document.getElementById('start-shift-btn').addEventListener('click', function () {
+      var btn = this;
+      guardedSave(btn, function () {
+        document.getElementById('shift-gps-status').textContent = '📡 Определяем вашу геолокацию...';
+        return getGeolocation().then(function (geo) {
+          if (!geo) {
+            document.getElementById('shift-gps-status').textContent = '⚠ Не удалось получить геолокацию — смена начнётся без сверки координат';
+          }
+          var data = {
+            equipmentId: selectedEquipmentId,
+            ourNumber: document.getElementById('f-shiftOurNumber').value,
+            address: document.getElementById('f-shiftAddress').value,
+            lat: geo ? geo.lat : '', lon: geo ? geo.lon : '',
+            targetLat: document.getElementById('f-shiftLat').value,
+            targetLon: document.getElementById('f-shiftLon').value
+          };
+          return call('startShift', data);
+        }).then(function (res) {
+          if (tg && tg.showAlert) tg.showAlert('Смена начата.\n' + res.matchLabel); else alert('Смена начата. ' + res.matchLabel);
+          renderShiftTab();
+        });
       });
     });
   }
@@ -994,7 +1120,7 @@
     return yandexMapsLoadPromise;
   }
 
-  function openMapPicker(fieldId) {
+  function openMapPicker(fieldId, latFieldId, lonFieldId, onConfirm) {
     if (YANDEX_MAPS_API_KEY.indexOf('ВСТАВЬТЕ') === 0) {
       showError(new Error('Разработчик не указал YANDEX_MAPS_API_KEY в app-static.html'));
       return;
@@ -1013,6 +1139,7 @@
     document.body.appendChild(overlay);
 
     var resolvedAddress = '';
+    var resolvedLat = null, resolvedLon = null;
     var placemark = null;
     var yMap = null;
 
@@ -1024,6 +1151,9 @@
     document.getElementById('map-confirm').addEventListener('click', function () {
       var input = document.getElementById('f-' + fieldId);
       if (input) input.value = resolvedAddress;
+      if (latFieldId) { var li = document.getElementById(latFieldId); if (li) li.value = resolvedLat; }
+      if (lonFieldId) { var lo = document.getElementById(lonFieldId); if (lo) lo.value = resolvedLon; }
+      if (onConfirm) onConfirm(resolvedAddress, resolvedLat, resolvedLon);
       closeMapModal();
     });
 
@@ -1039,6 +1169,7 @@
       function placeMarkAndGeocode(coords) {
         if (placemark) { placemark.geometry.setCoordinates(coords); }
         else { placemark = new ymaps.Placemark(coords, {}, { preset: 'islands#redDotIcon' }); yMap.geoObjects.add(placemark); }
+        resolvedLat = coords[0]; resolvedLon = coords[1];
         document.getElementById('map-address-preview').textContent = 'Определяем адрес...';
         document.getElementById('map-confirm').disabled = true;
         // HTTP Геокодер — отдельный продукт со своим ключом, не связан с ключом карты
