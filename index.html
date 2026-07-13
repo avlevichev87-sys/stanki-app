@@ -284,7 +284,8 @@
       reports: { color: '#fb8c00', pastel: '#ffe8cc' },
       parts: { color: '#8e24aa', pastel: '#f1dcf5' },
       users: { color: '#00897b', pastel: '#d3f1ee' },
-      shift: { color: '#43a047', pastel: '#dcf3df' }
+      shift: { color: '#43a047', pastel: '#dcf3df' },
+      stats: { color: '#5e35b1', pastel: '#e6e0f8' }
     };
     var tabs = [];
     if (can('equipment.view')) tabs.push(['equipment', '🏠', 'Главная']);
@@ -292,6 +293,7 @@
     if (can('reports.create')) tabs.push(['shift', '⏱', 'Смена']);
     if (can('parts.view')) tabs.push(['parts', '🔧', 'Запчасти']);
     if (can('users.view')) tabs.push(['users', '👥', 'Пользователи']);
+    if (can('shifts.view_all')) tabs.push(['stats', '📊', 'Статистика']);
 
     app.innerHTML =
       '<div class="header"><div>' +
@@ -322,6 +324,7 @@
     else if (tab === 'shift') renderShiftTab();
     else if (tab === 'parts') renderParts();
     else if (tab === 'users') renderUsers();
+    else if (tab === 'stats') renderStatsTab();
   }
 
   document.addEventListener('click', function (e) {
@@ -838,6 +841,42 @@
     });
   }
 
+  // ---------- Статистика смен ----------
+  function renderStatsTab() {
+    var content = document.getElementById('content');
+    content.innerHTML = '<div class="loading">Загрузка...</div>';
+    call('getShiftStats').then(function (data) {
+      var mastersHtml = data.masters.length ? data.masters.map(function (m) {
+        return '<div class="card">' +
+          '<div class="card-title">' + escapeHtml(m.fullName) + '</div>' +
+          '<div class="eq-line"><b>Смен:</b> ' + m.shiftsCount + '</div>' +
+          '<div class="eq-line"><b>Часов:</b> ' + m.hours + '</div>' +
+          '<div class="eq-line"><b>Ставка:</b> ' + (m.rate ? m.rate + ' ₽/ч' : '<span style="color:#e53935;">не задана</span>') + '</div>' +
+          '<div class="eq-line"><b>К оплате:</b> <span style="font-size:16px;font-weight:700;color:#2e7d32;">' + m.salary.toLocaleString('ru-RU') + ' ₽</span></div>' +
+          '</div>';
+      }).join('') : '<div class="empty">Пока нет завершённых смен</div>';
+
+      var objectsHtml = data.objects.length ? data.objects.map(function (o) {
+        var profitColor = o.profit >= 0 ? '#2e7d32' : '#c62828';
+        return '<div class="card">' +
+          '<div class="card-title">Наш № ' + escapeHtml(o.ourNumber || o.equipmentId) + '</div>' +
+          '<div class="eq-line"><b>Часов потрачено:</b> ' + o.hours + '</div>' +
+          '<div class="eq-line"><b>Выручка:</b> ' + o.revenue.toLocaleString('ru-RU') + ' ₽</div>' +
+          '<div class="eq-line"><b>Затраты (зарплата):</b> ' + o.cost.toLocaleString('ru-RU') + ' ₽</div>' +
+          '<div class="eq-line"><b>Прибыль:</b> <span style="font-size:16px;font-weight:700;color:' + profitColor + ';">' + o.profit.toLocaleString('ru-RU') + ' ₽</span></div>' +
+          '</div>';
+      }).join('') : '<div class="empty">Пока нет данных (нужны завершённые смены с привязкой к станку и/или отчёты с заполненной суммой)</div>';
+
+      content.innerHTML =
+        '<h2>👷 По мастерам</h2>' +
+        '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Ставка задаётся во вкладке «Пользователи». Часы считаются только по завершённым сменам.</div>' +
+        '<div class="list">' + mastersHtml + '</div>' +
+        '<h2 style="margin-top:24px;">🏭 По объектам (рентабельность)</h2>' +
+        '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Выручка — сумма поля «Сумма» из отчётов по станку. Затраты — часы смен на этом станке × ставка мастера. Отсортировано от самых прибыльных к убыточным.</div>' +
+        '<div class="list">' + objectsHtml + '</div>';
+    }).catch(showError);
+  }
+
   // ---------- Запчасти ----------
   function renderParts() {
     var content = document.getElementById('content');
@@ -931,6 +970,11 @@
             (notifOn ? ' checked' : '') + (can('users.edit_role') && !isCreator ? '' : ' disabled') + '>' +
             '🔔 Получает уведомления' + (isCreator ? ' (всегда, роль Создатель)' : '') +
           '</label>' +
+          (can('shifts.view_all') ?
+            '<div class="field" style="margin-top:8px;margin-bottom:0;"><label>Ставка в час (₽)</label>' +
+            '<input class="rate-input" data-id="' + escapeHtml(u['Telegram ID']) + '" type="number" value="' + escapeHtml(u['Ставка в час'] || '') + '"' +
+            (can('users.edit_role') ? '' : ' disabled') + '></div>'
+            : '') +
           '</div>';
       }).join('') + '</div>';
       content.innerHTML = html;
@@ -943,6 +987,11 @@
       Array.prototype.forEach.call(document.querySelectorAll('.notif-toggle'), function (chk) {
         chk.addEventListener('change', function () {
           call('updateUserNotifications', chk.dataset.id, chk.checked).catch(function (err) { chk.checked = !chk.checked; showError(err); });
+        });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.rate-input'), function (inp) {
+        inp.addEventListener('change', function () {
+          call('updateUserRate', inp.dataset.id, inp.value).catch(showError);
         });
       });
     }).catch(showError);
