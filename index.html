@@ -162,8 +162,11 @@
     { name: 'Сдан', color: '#3949ab', pastel: '#dfe2f5' }
   ];
 
+  var FIELD_ROLES = ['Мастер', 'Механик', 'Электрик'];
+  function isFieldRole(role) { return FIELD_ROLES.indexOf(role) !== -1; }
+
   function visibleStatuses() {
-    return STATUS_CONFIG.filter(function (s) { return !(s.hideFromMaster && state.role === 'Мастер'); });
+    return STATUS_CONFIG.filter(function (s) { return !(s.hideFromMaster && isFieldRole(state.role)); });
   }
 
   function statusColorFor(status) {
@@ -235,7 +238,7 @@
   }
 
   function canEditStatusFor(eq) {
-    if (state.role !== 'Мастер') return true;
+    if (!isFieldRole(state.role)) return true;
     return getResponsibles(eq || {}).indexOf(state.fullName) !== -1;
   }
 
@@ -626,12 +629,15 @@
     content.innerHTML =
       '<button class="btn-back">← Назад</button>' +
       '<h2>Новый отчет</h2>' +
+      formField('reportCustomer', 'Заказчик (сужает выбор станка)', presetEq ? (presetEq['Заказчик'] || '') : '', false, 'dl-report-customer') +
+      '<div class="field"><label>Адрес объекта</label><input id="f-reportCustomerAddress" readonly style="opacity:.65;" value="' + escapeHtml(presetEq ? (presetEq['Адрес'] || '') : '') + '"></div>' +
       formField('ourNumber', 'Наш номер станка', presetOurNumber, false, 'dl-ournum') +
       '<div class="field"><label>Станок (определяется автоматически)</label>' +
       '<input id="f-equipmentId" value="' + escapeHtml(equipmentId || '') + '" readonly style="opacity:.65;"></div>' +
       '<div id="eq-match-hint" style="font-size:12px;color:var(--hint);margin:-6px 0 10px;"></div>' +
       '<div class="claim-box"><label><input type="checkbox" id="f-claimRespReport"> 👤 Стать ответственным за этот станок</label></div>' +
       formField('workDate', 'Дата проведения работ', '', false, null, 'date') +
+      formField('estimatedDate', 'Ориентировочная дата выполнения работ', '', false, null, 'date') +
       formField('description', 'Описание работ', '', true) +
       formField('ourParts', 'Наши запчасти', '', true, 'dl-ourparts') +
       formField('customerParts', 'Запчасти заказчика', '', true, 'dl-custparts') +
@@ -659,6 +665,7 @@
       photoField('rep-photo') +
       '<button class="btn-primary" id="save-report">Сохранить</button>' +
       buildDatalist('dl-ournum', fieldValues(eqList, 'Наш номер')) +
+      buildDatalist('dl-report-customer', fieldValues(eqList, 'Заказчик')) +
       buildDatalist('dl-ourparts', fieldValues(reports, 'Наши запчасти')) +
       buildDatalist('dl-custparts', fieldValues(reports, 'Запчасти заказчика'));
 
@@ -669,6 +676,14 @@
         document.getElementById('warranty-comment-wrap').style.display = this.value === 'Да' ? 'block' : 'none';
       });
     }
+
+    document.getElementById('f-reportCustomer').addEventListener('input', function () {
+      var val = this.value.trim();
+      var filtered = val ? eqList.filter(function (e) { return String(e['Заказчик'] || '').toLowerCase() === val.toLowerCase(); }) : eqList;
+      setDatalistOptions('dl-ournum', fieldValues(filtered, 'Наш номер'));
+      var addresses = fieldValues(filtered, 'Адрес');
+      document.getElementById('f-reportCustomerAddress').value = addresses.length ? addresses.join('; ') : (val ? 'Адрес не найден' : '');
+    });
 
     function matchByOurNumber() {
       var val = document.getElementById('f-ourNumber').value.trim();
@@ -681,6 +696,8 @@
         idInput.value = match['ID станка'];
         hint.textContent = '✓ ' + [match['Тип оборудования'], match['Модель']].filter(Boolean).join(' ');
         hint.style.color = 'var(--hint)';
+        document.getElementById('f-reportCustomer').value = match['Заказчик'] || '';
+        document.getElementById('f-reportCustomerAddress').value = match['Адрес'] || '';
         if (canEditStatusFor(match)) {
           statusSelect.disabled = false;
           statusHint.textContent = '';
@@ -702,9 +719,10 @@
 
     document.getElementById('save-report').addEventListener('click', function () {
       var btn = this;
-      var data = collectForm(['equipmentId', 'workDate', 'description', 'ourParts', 'customerParts', 'neededNextTime', 'neededFuture', 'plannedWork', 'nextWorkDate', 'status']);
+      var data = collectForm(['equipmentId', 'workDate', 'estimatedDate', 'description', 'ourParts', 'customerParts', 'neededNextTime', 'neededFuture', 'plannedWork', 'nextWorkDate', 'status']);
       if (!data.equipmentId) { showError(new Error('Не удалось определить станок по «Наш номер» — проверьте значение')); return; }
       data.workDate = isoToRuDate(data.workDate);
+      data.estimatedDate = isoToRuDate(data.estimatedDate);
       data.nextWorkDate = isoToRuDate(data.nextWorkDate);
       var claim = document.getElementById('f-claimRespReport').checked;
       if (can('reports.financial')) {
@@ -749,6 +767,7 @@
       '<div class="claim-box" style="border-color:#43a047;background:#f0f8f0;">' +
         '<h2 style="margin-top:0;">🟢 Смена открыта</h2>' +
         detailRow('Начата', shift['Начало (время)']) +
+        (shift['Заказчик'] ? detailRow('Заказчик', shift['Заказчик']) : '') +
         (shift['Адрес'] ? detailRow('Объект', shift['Адрес']) : '') +
         detailRow('Геолокация при начале', shift['Совпадение начала']) +
       '</div>' +
@@ -780,6 +799,7 @@
       '<h2>Начать смену</h2>' +
       '<div style="font-size:13px;color:var(--hint);margin-bottom:12px;">Выберите объект (по «Наш номер») — адрес подставится сам, либо укажите точку на карте вручную.</div>' +
       formField('shiftOurNumber', 'Наш номер станка (опционально)', '', false, 'dl-shift-ournum') +
+      '<div class="field"><label>Заказчик/Клиент</label><input id="f-shiftCustomer" style="opacity:.85;"></div>' +
       '<div class="field"><label>Адрес объекта</label><input id="f-shiftAddress" readonly style="opacity:.65;"></div>' +
       '<input type="hidden" id="f-shiftLat"><input type="hidden" id="f-shiftLon">' +
       '<button type="button" class="btn-secondary" id="pick-map-shift">📍 Указать вручную на карте</button>' +
@@ -797,6 +817,7 @@
       if (match) {
         selectedEquipmentId = match['ID станка'];
         document.getElementById('f-shiftAddress').value = match['Адрес'] || '(у станка не указан адрес)';
+        document.getElementById('f-shiftCustomer').value = match['Заказчик'] || '';
         document.getElementById('f-shiftLat').value = match['Широта'] || '';
         document.getElementById('f-shiftLon').value = match['Долгота'] || '';
         hint.textContent = match['Широта'] && match['Долгота'] ? '✓ Координаты объекта найдены — будет сверка геолокации' : '⚠ У объекта нет сохранённых координат — сверка геолокации будет недоступна';
@@ -827,6 +848,7 @@
           var data = {
             equipmentId: selectedEquipmentId,
             ourNumber: document.getElementById('f-shiftOurNumber').value,
+            customer: document.getElementById('f-shiftCustomer').value,
             address: document.getElementById('f-shiftAddress').value,
             lat: geo ? geo.lat : '', lon: geo ? geo.lon : '',
             targetLat: document.getElementById('f-shiftLat').value,
@@ -868,13 +890,56 @@
       }).join('') : '<div class="empty">Пока нет данных (нужны завершённые смены с привязкой к станку и/или отчёты с заполненной суммой)</div>';
 
       content.innerHTML =
-        '<h2>👷 По мастерам</h2>' +
+        '<h2>🗺 Карта открытых смен</h2>' +
+        '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Кто сейчас в смене и где — для планирования и распределения бригад по объектам.</div>' +
+        '<div id="shifts-map-container"><div class="loading">Загрузка карты...</div></div>' +
+        '<h2 style="margin-top:24px;">👷 По мастерам</h2>' +
         '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Ставка задаётся во вкладке «Пользователи». Часы считаются только по завершённым сменам.</div>' +
         '<div class="list">' + mastersHtml + '</div>' +
         '<h2 style="margin-top:24px;">🏭 По объектам (рентабельность)</h2>' +
         '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Выручка — сумма поля «Сумма» из отчётов по станку. Затраты — часы смен на этом станке × ставка мастера. Отсортировано от самых прибыльных к убыточным.</div>' +
         '<div class="list">' + objectsHtml + '</div>';
+
+      renderOpenShiftsMap();
     }).catch(showError);
+  }
+
+  function renderOpenShiftsMap() {
+    var container = document.getElementById('shifts-map-container');
+    call('getOpenShifts').then(function (shifts) {
+      if (!shifts.length) {
+        container.innerHTML = '<div class="empty">Сейчас никто не в смене</div>';
+        return;
+      }
+      container.innerHTML =
+        '<div id="shifts-map-el" style="height:320px;border-radius:12px;overflow:hidden;margin-bottom:10px;"></div>' +
+        '<div class="legend"><span><i style="background:#43a047"></i> Совпадает с объектом</span><span><i style="background:#e53935"></i> Расхождение с объектом</span></div>';
+      loadYandexMapsScript().then(function () {
+        var ymaps = window.ymaps;
+        var map = new ymaps.Map('shifts-map-el', { center: [55.7558, 37.6176], zoom: 9, controls: ['zoomControl'] });
+        var points = [];
+        shifts.forEach(function (s) {
+          var lat = parseFloat(s['Широта начала']), lon = parseFloat(s['Долгота начала']);
+          if (isNaN(lat) || isNaN(lon)) return;
+          var ok = String(s['Совпадение начала'] || '').indexOf('✓') === 0;
+          var balloon = '<b>' + escapeHtml(s['ФИО']) + '</b><br>' +
+            (s['Заказчик'] ? 'Заказчик: ' + escapeHtml(s['Заказчик']) + '<br>' : '') +
+            (s['Адрес'] ? 'Объект: ' + escapeHtml(s['Адрес']) + '<br>' : '') +
+            'В смене с: ' + escapeHtml(s['Начало (время)']) + '<br>' +
+            escapeHtml(s['Совпадение начала'] || '');
+          var placemark = new ymaps.Placemark([lat, lon], { balloonContent: balloon, hintContent: s['ФИО'] },
+            { preset: ok ? 'islands#greenCircleIcon' : 'islands#redCircleIcon' });
+          map.geoObjects.add(placemark);
+          points.push([lat, lon]);
+        });
+        if (points.length > 1) map.setBounds(map.geoObjects.getBounds(), { checkZoomRange: true, zoomMargin: 30 });
+        else if (points.length === 1) map.setCenter(points[0], 13);
+      }).catch(function (err) {
+        container.innerHTML = '<div class="error">' + escapeHtml(err.message) + '</div>';
+      });
+    }).catch(function (err) {
+      container.innerHTML = '<div class="error">' + escapeHtml(err.message || err) + '</div>';
+    });
   }
 
   // ---------- Запчасти ----------
@@ -962,7 +1027,7 @@
         return '<div class="card"><div class="card-title">' + escapeHtml(u['ФИО']) + '</div>' +
           '<div class="card-sub">ID ' + escapeHtml(u['Telegram ID']) + '</div>' +
           '<select class="role-select" data-id="' + escapeHtml(u['Telegram ID']) + '" ' + (can('users.edit_role') ? '' : 'disabled') + '>' +
-          ['Создатель', 'Админ', 'Мастер'].map(function (r) {
+          ['Создатель', 'Админ', 'Руководитель', 'Генеральный директор', 'Мастер', 'Механик', 'Электрик'].map(function (r) {
             return '<option value="' + r + '"' + (r === u['Роль'] ? ' selected' : '') + '>' + r + '</option>';
           }).join('') + '</select>' +
           '<label style="display:flex;align-items:center;gap:6px;margin-top:8px;font-size:13px;">' +
@@ -1005,7 +1070,7 @@
       formField('telegramId', 'Telegram ID', '') +
       formField('fullName', 'ФИО', '') +
       '<div class="field"><label>Роль</label><select id="f-role">' +
-      ['Админ', 'Мастер'].map(function (r) { return '<option value="' + r + '">' + r + '</option>'; }).join('') +
+      ['Админ', 'Руководитель', 'Генеральный директор', 'Мастер', 'Механик', 'Электрик'].map(function (r) { return '<option value="' + r + '">' + r + '</option>'; }).join('') +
       '</select></div>' +
       '<button class="btn-primary" id="save-user">Сохранить</button>';
     content.querySelector('.btn-back').addEventListener('click', renderUsers);
@@ -1064,6 +1129,13 @@
     return '<datalist id="' + id + '">' + values.map(function (v) {
       return '<option value="' + escapeHtml(v) + '">';
     }).join('') + '</datalist>';
+  }
+
+  // Перезаполняет уже существующий <datalist> новым набором вариантов (используется для динамического сужения выбора)
+  function setDatalistOptions(datalistId, values) {
+    var dl = document.getElementById(datalistId);
+    if (!dl) return;
+    dl.innerHTML = values.map(function (v) { return '<option value="' + escapeHtml(v) + '">'; }).join('');
   }
 
   function equipmentDatalist(listId) {
