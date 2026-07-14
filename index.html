@@ -459,8 +459,8 @@
         '<h2>' + escapeHtml(eq['Тип оборудования'] || '') + ' ' + escapeHtml(eq['Модель'] || '') + '</h2>' +
         (eq['Статус'] ? '<span class="status-pill" style="background:' + statusColorFor(eq['Статус']) + '">' + escapeHtml(eq['Статус'].toUpperCase()) + '</span>' : '') +
         renderAllFields(eq, ['ID станка', 'Тип оборудования', 'Модель', 'Статус', 'Фото', 'Фото шильдика']) +
-        (eq['Фото'] ? detailRow('Фото', eq['Фото'].split(',').filter(Boolean).length + ' шт. (в Telegram-канале)') : '') +
-        (eq['Фото шильдика'] ? detailRow('Фото шильдика', 'загружено ✓') : '') +
+        (eq['Фото'] ? '<div class="detail-row"><span class="detail-label">Фото</span><span class="detail-value">' + photoLinksHtml(eq['Фото']) + '</span></div>' : '') +
+        (eq['Фото шильдика'] ? '<div class="detail-row"><span class="detail-label">Фото шильдика</span><span class="detail-value">' + photoLinksHtml(eq['Фото шильдика']) + '</span></div>' : '') +
         detailRow('Ответственные', responsibles.join(', ') || 'не назначен') +
         '<div class="' + (hasResp ? 'resp-flag ok' : 'resp-flag warn') + '">' + (hasResp ? '✓ Ответственный назначен' : '⚠ Ответственный не назначен') + '</div>' +
         (can('equipment.edit') ? '<button class="btn-primary" id="detail-edit-eq">Редактировать</button>' : '') +
@@ -491,7 +491,7 @@
         '</div>' +
         (r['Описание работ'] ? '<div class="hist-desc">' + escapeHtml(r['Описание работ']) + '</div>' : '') +
         ((r['Наши запчасти'] || r['Запчасти заказчика']) ? '<div class="hist-parts">🔧 Запчасти: Наши: ' + escapeHtml(r['Наши запчасти'] || '—') + ' | Заказчика: ' + escapeHtml(r['Запчасти заказчика'] || '—') + '</div>' : '') +
-        (r['Фото'] ? '<div class="hist-parts">📷 Фото: ' + r['Фото'].split(',').filter(Boolean).length + ' шт.</div>' : '') +
+        (r['Фото'] ? '<div class="hist-parts">' + photoLinksHtml(r['Фото']) + '</div>' : '') +
         extraFields +
         '<div class="hist-entered">Внесено: ' + escapeHtml(r['Дата записи отчета'] || '—') + '</div>' +
         (can('reports.create') ? '<button class="btn-secondary claim-resp-btn" data-eqid="' + escapeHtml(r['ID Станка']) + '">👤 Стать ответственным</button>' : '') +
@@ -1165,6 +1165,19 @@
     }).map(function (k) { return detailRow(k, obj[k]); }).join('');
   }
 
+  // Значения в колонках "Фото"/"Фото шильдика" — это ссылки вида https://t.me/c/.../123 (см. Photos.gs),
+  // старые записи (до этого фикса) могут быть просто голым file_id без ссылки — их просто выводим текстом.
+  function photoLinksHtml(raw) {
+    var items = String(raw).split(',').filter(Boolean);
+    return items.map(function (item, i) {
+      item = item.trim();
+      if (/^https?:\/\//.test(item)) {
+        return '<a href="' + escapeHtml(item) + '" target="_blank" rel="noopener">📷 Фото ' + (i + 1) + '</a>';
+      }
+      return '<span title="старая запись без прямой ссылки">📷 ' + (i + 1) + '</span>';
+    }).join(', ');
+  }
+
   function detailRow(label, value) {
     return '<div class="detail-row"><span class="detail-label">' + label + '</span><span class="detail-value">' + escapeHtml(value || '-') + '</span></div>';
   }
@@ -1218,7 +1231,7 @@
       reader.onload = function () {
         var base64 = reader.result.split(',')[1];
         call('uploadPhoto', base64, file.type, file.name).then(function (res) {
-          resolve(res.fileId);
+          resolve(res.link || res.fileId); // ссылка на сообщение в канале — если её не удалось построить, хотя бы file_id
         }).catch(reject);
       };
       reader.onerror = function () { reject(new Error('Не удалось прочитать файл')); };
