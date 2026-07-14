@@ -772,7 +772,10 @@
         detailRow('Геолокация при начале', shift['Совпадение начала']) +
       '</div>' +
       '<button class="btn-primary" id="end-shift-btn" style="background:#e53935;">🔴 Завершить смену</button>' +
-      '<div id="shift-gps-status" style="font-size:13px;color:var(--hint);margin-top:10px;text-align:center;"></div>';
+      '<div id="shift-gps-status" style="font-size:13px;color:var(--hint);margin-top:10px;text-align:center;"></div>' +
+      (can('shifts.view_all') ? '<h3 style="margin-top:20px;">🗺 Кто ещё сейчас в смене</h3><div id="shifts-map-container"><div class="loading">Загрузка карты...</div></div>' : '');
+
+    if (can('shifts.view_all')) renderOpenShiftsMap();
 
     document.getElementById('end-shift-btn').addEventListener('click', function () {
       var btn = this;
@@ -806,7 +809,10 @@
       '<div id="shift-match-hint" style="font-size:12px;color:var(--hint);margin:6px 0 10px;"></div>' +
       '<button class="btn-primary" id="start-shift-btn" style="background:#43a047;">🟢 Начать смену</button>' +
       '<div id="shift-gps-status" style="font-size:13px;color:var(--hint);margin-top:10px;text-align:center;"></div>' +
-      buildDatalist('dl-shift-ournum', fieldValues(eqList, 'Наш номер'));
+      buildDatalist('dl-shift-ournum', fieldValues(eqList, 'Наш номер')) +
+      (can('shifts.view_all') ? '<h3 style="margin-top:20px;">🗺 Кто сейчас в смене</h3><div id="shifts-map-container"><div class="loading">Загрузка карты...</div></div>' : '');
+
+    if (can('shifts.view_all')) renderOpenShiftsMap();
 
     var selectedEquipmentId = '';
 
