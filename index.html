@@ -574,10 +574,11 @@
         data.lat = document.getElementById('f-eqlat').value;
         data.lon = document.getElementById('f-eqlon').value;
         var claim = document.getElementById('f-claimRespEq').checked && !alreadyResp;
+        var stationIdentifier = eq ? eq['ID станка'] : (data.ourNumber || 'новый станок');
         var nameplateFile = nameplateInput.files[0];
-        var nameplateUpload = nameplateFile ? fileToUpload(nameplateFile) : Promise.resolve(null);
+        var nameplateUpload = nameplateFile ? fileToUpload(nameplateFile, stationIdentifier + ' | шильдик') : Promise.resolve(null);
 
-        return Promise.all([uploadPendingPhotos('eq-photo'), nameplateUpload]).then(function (res) {
+        return Promise.all([uploadPendingPhotos('eq-photo', stationIdentifier + ' | прочие фотографии'), nameplateUpload]).then(function (res) {
           if (res[0].length) data.photoFileIds = res[0];
           if (res[1]) data.nameplatePhotoFileId = res[1];
           return eq ? call('updateEquipment', eq['ID станка'], data) : call('addEquipment', data);
@@ -629,6 +630,8 @@
     var eqList = state.equipmentList || [];
     var presetEq = equipmentId ? eqList.find(function (e) { return String(e['ID станка']) === String(equipmentId); }) : null;
     var presetOurNumber = presetEq ? (presetEq['Наш номер'] || '') : '';
+    var currentShiftId = ''; // подтянется в фоне, используется только для подписи к фото
+    call('getMyOpenShift').then(function (shift) { if (shift) currentShiftId = shift['ID смены'] || ''; }).catch(function () {});
 
     content.innerHTML =
       '<button class="btn-back">← Назад</button>' +
@@ -735,7 +738,8 @@
         if (data.warranty === 'Да') data.warrantyComment = document.getElementById('f-warrantyComment').value;
       }
       guardedSave(btn, function () {
-        return uploadPendingPhotos('rep-photo').then(function (fileIds) {
+        var photoCaption = data.equipmentId + ' | ID смены: ' + (currentShiftId || 'нет активной смены');
+        return uploadPendingPhotos('rep-photo', photoCaption).then(function (fileIds) {
           if (fileIds.length) data.photoFileIds = fileIds;
           return call('addReport', data);
         }).then(function () {
@@ -1222,19 +1226,19 @@
     });
   }
 
-  function uploadPendingPhotos(fieldId) {
+  function uploadPendingPhotos(fieldId, caption) {
     var input = document.getElementById(fieldId + '-input');
     var files = (input && input._files) || [];
     if (!files.length) return Promise.resolve([]);
-    return Promise.all(files.map(fileToUpload));
+    return Promise.all(files.map(function (f) { return fileToUpload(f, caption); }));
   }
 
-  function fileToUpload(file) {
+  function fileToUpload(file, caption) {
     return new Promise(function (resolve, reject) {
       var reader = new FileReader();
       reader.onload = function () {
         var base64 = reader.result.split(',')[1];
-        call('uploadPhoto', base64, file.type, file.name).then(function (res) {
+        call('uploadPhoto', base64, file.type, caption || file.name).then(function (res) {
           resolve(res.link || res.fileId); // ссылка на сообщение в канале — если её не удалось построить, хотя бы file_id
         }).catch(reject);
       };
