@@ -29,6 +29,12 @@
     display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 5px 12px;
     border: none; border-radius: 14px; background: #43a047; color: #fff; font-size: 12.5px; font-weight: 700;
   }
+  .shift-quick-btn.active { background: #e53935; animation: shiftPulse 2s infinite; }
+  @keyframes shiftPulse {
+    0% { box-shadow: 0 0 0 0 rgba(229,57,53,0.55); }
+    70% { box-shadow: 0 0 0 8px rgba(229,57,53,0); }
+    100% { box-shadow: 0 0 0 0 rgba(229,57,53,0); }
+  }
   .app-version { text-align: right; font-size: 11px; color: var(--hint); margin-bottom: 2px; }
   .role { color: var(--hint); font-size: 13px; }
   .header-logo-badge { height: 88px; flex: 0 0 auto; }
@@ -326,6 +332,10 @@
         Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function (btn) { btn.classList.remove('active'); });
         renderShiftTab();
       });
+      call('getMyOpenShift').then(function (shift) {
+        state.openShift = shift;
+        updateShiftButtonUI();
+      }).catch(function () {});
     }
 
     Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function (btn) {
@@ -626,12 +636,20 @@
   }
 
   function renderReportCard(r) {
+    var status = r['Статус'] || '';
+    var extraFields = renderAllFields(r, [
+      'ID Станка', 'Наш номер', 'Кто заполнил', 'Дата записи отчета', 'Статус', 'Фото'
+    ]);
     return '<div class="card">' +
-      '<div class="card-title">Наш № ' + escapeHtml(r._ourNumber || '—') + (r._eqLabel ? ' · ' + escapeHtml(r._eqLabel) : '') + '</div>' +
-      '<div class="card-sub">ID станка: ' + escapeHtml(r['ID Станка']) + ' · ' + escapeHtml(r['Статус'] || '') + '</div>' +
-      '<div class="card-sub">Дата работ: ' + escapeHtml(r['Дата проведения работ'] || '—') + ' — ' + escapeHtml(r['Кто заполнил'] || '') + '</div>' +
-      '<div class="card-sub eq-meta">Внесено: ' + escapeHtml(r['Дата записи отчета'] || '—') + '</div>' +
-      '<div class="card-sub">' + escapeHtml((r['Описание работ'] || '').slice(0, 140)) + '</div>' +
+      '<div class="eq-title-row">' +
+        '<div class="eq-title">Наш № ' + escapeHtml(r._ourNumber || '—') + (r._eqLabel ? ' · ' + escapeHtml(r._eqLabel) : '') + '</div>' +
+        (status ? '<span class="status-pill" style="background:' + statusColorFor(status) + '">' + escapeHtml(status.toUpperCase()) + '</span>' : '') +
+      '</div>' +
+      '<div class="eq-line"><b>ID станка:</b> ' + escapeHtml(r['ID Станка'] || '—') + '</div>' +
+      '<div class="eq-line"><b>Кто заполнил:</b> ' + escapeHtml(r['Кто заполнил'] || '—') + '</div>' +
+      extraFields +
+      (r['Фото'] ? '<div class="hist-parts">' + photoLinksHtml(r['Фото']) + '</div>' : '') +
+      '<div class="hist-entered">Внесено: ' + escapeHtml(r['Дата записи отчета'] || '—') + '</div>' +
       (can('reports.create') ? '<button class="btn-secondary claim-resp-btn" data-eqid="' + escapeHtml(r['ID Станка']) + '">👤 Стать ответственным</button>' : '') +
       '</div>';
   }
@@ -654,6 +672,7 @@
       '<div class="field"><label>Станок (определяется автоматически)</label>' +
       '<input id="f-equipmentId" value="' + escapeHtml(equipmentId || '') + '" readonly style="opacity:.65;"></div>' +
       '<div id="eq-match-hint" style="font-size:12px;color:var(--hint);margin:-6px 0 10px;"></div>' +
+      '<div id="eq-resp-hint" style="display:none;" class="resp-flag ok"></div>' +
       '<div class="claim-box"><label><input type="checkbox" id="f-claimRespReport"> 👤 Стать ответственным за этот станок</label></div>' +
       formField('workDate', 'Дата проведения работ', '', false, null, 'date') +
       formField('estimatedDate', 'Ориентировочная дата выполнения работ', '', false, null, 'date') +
@@ -717,6 +736,16 @@
         hint.style.color = 'var(--hint)';
         document.getElementById('f-reportCustomer').value = match['Заказчик'] || '';
         document.getElementById('f-reportCustomerAddress').value = match['Адрес'] || '';
+        var respHint = document.getElementById('eq-resp-hint');
+        var responsibles = getResponsibles(match);
+        respHint.style.display = 'block';
+        if (responsibles.length) {
+          respHint.className = 'resp-flag ok';
+          respHint.textContent = '👤 Ответственные за станок: ' + responsibles.join(', ');
+        } else {
+          respHint.className = 'resp-flag warn';
+          respHint.textContent = '⚠ У этого станка пока нет ответственного';
+        }
         if (canEditStatusFor(match)) {
           statusSelect.disabled = false;
           statusHint.textContent = '';
@@ -729,6 +758,7 @@
         idInput.value = '';
         hint.textContent = val ? 'Станок с таким "Наш номер" не найден' : '';
         hint.style.color = val ? '#e53935' : 'var(--hint)';
+        document.getElementById('eq-resp-hint').style.display = 'none';
         statusSelect.disabled = false;
         statusHint.textContent = '';
       }
@@ -774,6 +804,47 @@
     });
   }
 
+  // ---------- Таймер и индикация кнопки "Смена" в шапке ----------
+  var shiftTimerInterval = null;
+
+  function parseFullDateTime(s) {
+    var m = String(s).match(/^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2}):(\d{2})/);
+    if (!m) return null;
+    return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +m[6]);
+  }
+
+  function updateShiftButtonUI() {
+    var btn = document.getElementById('shift-quick-btn');
+    if (!btn) return;
+    if (state.openShift) {
+      btn.classList.add('active');
+      startShiftTimer();
+    } else {
+      btn.classList.remove('active');
+      stopShiftTimer();
+      btn.innerHTML = '⏱ Смена';
+    }
+  }
+
+  function startShiftTimer() {
+    stopShiftTimer();
+    function tick() {
+      var btn = document.getElementById('shift-quick-btn');
+      if (!btn || !state.openShift) return;
+      var start = parseFullDateTime(state.openShift['Начало (время)']);
+      if (!start) { btn.innerHTML = '🔴 Смена идёт'; return; }
+      var totalMin = Math.max(0, Math.floor((Date.now() - start.getTime()) / 60000));
+      var h = Math.floor(totalMin / 60), m = totalMin % 60;
+      btn.innerHTML = '🔴 ' + (h ? h + 'ч ' : '') + m + 'м';
+    }
+    tick();
+    shiftTimerInterval = setInterval(tick, 15000);
+  }
+
+  function stopShiftTimer() {
+    if (shiftTimerInterval) { clearInterval(shiftTimerInterval); shiftTimerInterval = null; }
+  }
+
   function renderShiftTab() {
     var content = document.getElementById('content');
     content.innerHTML = '<div class="loading">Загрузка...</div>';
@@ -812,6 +883,8 @@
           return call('endShift', data);
         }).then(function (res) {
           if (tg && tg.showAlert) tg.showAlert('Смена завершена.\n' + res.matchLabel); else alert('Смена завершена. ' + res.matchLabel);
+          state.openShift = null;
+          updateShiftButtonUI();
           renderShiftTab();
         });
       });
@@ -886,6 +959,10 @@
           return call('startShift', data);
         }).then(function (res) {
           if (tg && tg.showAlert) tg.showAlert('Смена начата.\n' + res.matchLabel); else alert('Смена начата. ' + res.matchLabel);
+          return call('getMyOpenShift');
+        }).then(function (shift) {
+          state.openShift = shift;
+          updateShiftButtonUI();
           renderShiftTab();
         });
       });
