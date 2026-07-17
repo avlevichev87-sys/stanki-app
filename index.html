@@ -662,6 +662,7 @@
     var presetOurNumber = presetEq ? (presetEq['Наш номер'] || '') : '';
     var currentShiftId = ''; // подтянется в фоне, используется только для подписи к фото
     call('getMyOpenShift').then(function (shift) { if (shift) currentShiftId = shift['ID смены'] || ''; }).catch(function () {});
+    var currentMatch = null; // сейчас определённый станок — нужен и для подсказки, и для проверки доступности статуса
 
     content.innerHTML =
       '<button class="btn-back">← Назад</button>' +
@@ -723,13 +724,32 @@
       document.getElementById('f-reportCustomerAddress').value = addresses.length ? addresses.join('; ') : (val ? 'Адрес не найден' : '');
     });
 
+    function updateStatusAvailability() {
+      var statusSelect = document.getElementById('f-status');
+      var statusHint = document.getElementById('status-restrict-hint');
+      if (!currentMatch) { statusSelect.disabled = false; statusHint.textContent = ''; return; }
+      var claimChecked = document.getElementById('f-claimRespReport').checked;
+      if (canEditStatusFor(currentMatch) || claimChecked) {
+        statusSelect.disabled = false;
+        statusHint.textContent = claimChecked && !canEditStatusFor(currentMatch)
+          ? '✓ Станете ответственным при сохранении — статус сохранится'
+          : '';
+        statusHint.style.color = '#2e7d32';
+      } else {
+        statusSelect.disabled = true;
+        statusSelect.value = '';
+        statusHint.textContent = 'Менять статус может только ответственный за этот станок — отметьте «Стать ответственным» выше, чтобы разблокировать';
+        statusHint.style.color = '#e53935';
+      }
+    }
+    document.getElementById('f-claimRespReport').addEventListener('change', updateStatusAvailability);
+
     function matchByOurNumber() {
       var val = document.getElementById('f-ourNumber').value.trim();
       var match = eqList.find(function (e) { return String(e['Наш номер'] || '').toLowerCase() === val.toLowerCase(); });
       var idInput = document.getElementById('f-equipmentId');
       var hint = document.getElementById('eq-match-hint');
-      var statusSelect = document.getElementById('f-status');
-      var statusHint = document.getElementById('status-restrict-hint');
+      currentMatch = match || null;
       if (match) {
         idInput.value = match['ID станка'];
         hint.textContent = '✓ ' + [match['Тип оборудования'], match['Модель']].filter(Boolean).join(' ');
@@ -746,22 +766,13 @@
           respHint.className = 'resp-flag warn';
           respHint.textContent = '⚠ У этого станка пока нет ответственного';
         }
-        if (canEditStatusFor(match)) {
-          statusSelect.disabled = false;
-          statusHint.textContent = '';
-        } else {
-          statusSelect.disabled = true;
-          statusSelect.value = '';
-          statusHint.textContent = 'Менять статус может только ответственный за этот станок';
-        }
       } else {
         idInput.value = '';
         hint.textContent = val ? 'Станок с таким "Наш номер" не найден' : '';
         hint.style.color = val ? '#e53935' : 'var(--hint)';
         document.getElementById('eq-resp-hint').style.display = 'none';
-        statusSelect.disabled = false;
-        statusHint.textContent = '';
       }
+      updateStatusAvailability();
     }
     document.getElementById('f-ourNumber').addEventListener('input', matchByOurNumber);
     if (presetOurNumber) matchByOurNumber();
@@ -783,12 +794,13 @@
       // на тот же ID, под которым отчёт сохранится в таблице
       data.reportId = 'RPT-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
       guardedSave(btn, function () {
-        var photoCaption = data.equipmentId + ' | Отчёт: ' + data.reportId + ' | ID смены: ' + (currentShiftId || 'нет активной смены');
-        return uploadPendingPhotos('rep-photo', photoCaption).then(function (fileIds) {
+        var claimPromise = claim ? call('claimResponsibility', data.equipmentId).catch(function () {}) : Promise.resolve();
+        return claimPromise.then(function () {
+          var photoCaption = data.equipmentId + ' | Отчёт: ' + data.reportId + ' | ID смены: ' + (currentShiftId || 'нет активной смены');
+          return uploadPendingPhotos('rep-photo', photoCaption);
+        }).then(function (fileIds) {
           if (fileIds.length) data.photoFileIds = fileIds;
           return call('addReport', data);
-        }).then(function () {
-          if (claim) return call('claimResponsibility', data.equipmentId).catch(function () {});
         }).then(renderReports);
       });
     });
