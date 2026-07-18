@@ -502,13 +502,19 @@
     }).catch(showError);
   }
 
+  var FINANCIAL_REPORT_FIELDS = ['Гарантия', 'Комментарий по гарантии', 'Номер счета/акта', 'Дата счета', 'Банк', 'Сумма'];
+  // Базовые исключения для динамического показа полей отчёта + финансовые поля, если у роли нет доступа к ним
+  function reportFieldExcludes(base) {
+    return can('reports.financial') ? base : base.concat(FINANCIAL_REPORT_FIELDS);
+  }
+
   function renderHistoryEntry(r) {
     var d = parseDateParts(r['Дата проведения работ'] || r['Дата записи отчета']);
     var status = r['Статус'] || '';
-    var extraFields = renderAllFields(r, [
+    var extraFields = renderAllFields(r, reportFieldExcludes([
       'ID Станка', 'Наш номер', 'Кто заполнил', 'Дата записи отчета', 'Статус',
       'Описание работ', 'Наши запчасти', 'Запчасти заказчика', 'Фото'
-    ]);
+    ]));
     return '<div class="hist-entry">' +
       '<div class="hist-date-badge">' + escapeHtml(d.day) + '<span>' + escapeHtml(d.month) + '</span></div>' +
       '<div class="hist-content">' +
@@ -637,9 +643,9 @@
 
   function renderReportCard(r) {
     var status = r['Статус'] || '';
-    var extraFields = renderAllFields(r, [
+    var extraFields = renderAllFields(r, reportFieldExcludes([
       'ID Станка', 'Наш номер', 'Кто заполнил', 'Дата записи отчета', 'Статус', 'Фото'
-    ]);
+    ]));
     return '<div class="card">' +
       '<div class="eq-title-row">' +
         '<div class="eq-title">Наш № ' + escapeHtml(r._ourNumber || '—') + (r._eqLabel ? ' · ' + escapeHtml(r._eqLabel) : '') + '</div>' +
@@ -820,9 +826,9 @@
   var shiftTimerInterval = null;
 
   function parseFullDateTime(s) {
-    var m = String(s).match(/^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2}):(\d{2})/);
+    var m = String(s).match(/^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2})(?::(\d{2}))?/);
     if (!m) return null;
-    return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +m[6]);
+    return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5], +(m[6] || 0));
   }
 
   function updateShiftButtonUI() {
