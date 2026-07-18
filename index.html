@@ -304,12 +304,12 @@
       stats: { color: '#5e35b1', pastel: '#e6e0f8' }
     };
     var tabs = [];
-    if (can('equipment.view')) tabs.push(['equipment', '🏠', 'Главная']);
     if (can('reports.view')) tabs.push(['reports', '📄', 'Отчеты']);
     if (can('parts.view')) tabs.push(['parts', '🔧', 'Запчасти']);
     if (can('users.view')) tabs.push(['users', '👥', 'Пользователи']);
     if (can('shifts.view_all')) tabs.push(['stats', '📊', 'Статистика']);
     var showShiftBtn = can('reports.create');
+    var hasHome = can('equipment.view');
 
     app.innerHTML =
       (state.appVersion ? '<div class="app-version">' + escapeHtml(state.appVersion) + '</div>' : '') +
@@ -341,7 +341,8 @@
     Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function (btn) {
       btn.addEventListener('click', function () { setTab(btn.dataset.tab); });
     });
-    setTab(tabs.length ? tabs[0][0] : null);
+    if (hasHome) renderEquipment();
+    else setTab(tabs.length ? tabs[0][0] : null);
   }
 
   function setTab(tab) {
@@ -354,6 +355,22 @@
     else if (tab === 'parts') renderParts();
     else if (tab === 'users') renderUsers();
     else if (tab === 'stats') renderStatsTab();
+  }
+
+  // "Главная" больше не отдельная вкладка в ряду — это домашняя страница по умолчанию,
+  // на другие вкладки с неё переходят как обычно, а обратно — через эту кнопку "На главную"
+  function goHome() {
+    Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function (btn) { btn.classList.remove('active'); });
+    renderEquipment();
+  }
+
+  function homeButtonHtml() {
+    return can('equipment.view') ? '<button class="btn-back" id="back-home-btn">← На главную</button>' : '';
+  }
+
+  function wireHomeButton() {
+    var btn = document.getElementById('back-home-btn');
+    if (btn) btn.addEventListener('click', goHome);
   }
 
   document.addEventListener('click', function (e) {
@@ -637,7 +654,8 @@
       });
       state.reportsList = list;
       var sorted = sortReportsByWorkDate(list);
-      content.innerHTML = '<div class="list" id="rep-list">' + (sorted.length ? sorted.map(renderReportCard).join('') : '<div class="empty">Отчетов нет</div>') + '</div>';
+      content.innerHTML = homeButtonHtml() + '<div class="list" id="rep-list">' + (sorted.length ? sorted.map(renderReportCard).join('') : '<div class="empty">Отчетов нет</div>') + '</div>';
+      wireHomeButton();
     }).catch(showError);
   }
 
@@ -876,6 +894,7 @@
   function renderEndShiftView(shift) {
     var content = document.getElementById('content');
     content.innerHTML =
+      homeButtonHtml() +
       '<div class="claim-box" style="border-color:#43a047;background:#f0f8f0;">' +
         '<h2 style="margin-top:0;">🟢 Смена открыта</h2>' +
         detailRow('Начата', shift['Начало (время)']) +
@@ -887,6 +906,7 @@
       '<div id="shift-gps-status" style="font-size:13px;color:var(--hint);margin-top:10px;text-align:center;"></div>' +
       (can('shifts.view_all') ? '<h3 style="margin-top:20px;">🗺 Кто ещё сейчас в смене</h3><div id="shifts-map-container"><div class="loading">Загрузка карты...</div></div>' : '');
 
+    wireHomeButton();
     if (can('shifts.view_all')) renderOpenShiftsMap();
 
     document.getElementById('end-shift-btn').addEventListener('click', function () {
@@ -913,6 +933,7 @@
     var content = document.getElementById('content');
     var eqList = state.equipmentList || [];
     content.innerHTML =
+      homeButtonHtml() +
       '<h2>Начать смену</h2>' +
       '<div style="font-size:13px;color:var(--hint);margin-bottom:12px;">Выберите объект (по «Наш номер») — адрес подставится сам, либо укажите точку на карте вручную.</div>' +
       formField('shiftOurNumber', 'Наш номер станка (опционально)', '', false, 'dl-shift-ournum') +
@@ -926,6 +947,7 @@
       buildDatalist('dl-shift-ournum', fieldValues(eqList, 'Наш номер')) +
       (can('shifts.view_all') ? '<h3 style="margin-top:20px;">🗺 Кто сейчас в смене</h3><div id="shifts-map-container"><div class="loading">Загрузка карты...</div></div>' : '');
 
+    wireHomeButton();
     if (can('shifts.view_all')) renderOpenShiftsMap();
 
     var selectedEquipmentId = '';
@@ -1014,6 +1036,7 @@
       }).join('') : '<div class="empty">Пока нет данных (нужны завершённые смены с привязкой к станку и/или отчёты с заполненной суммой)</div>';
 
       content.innerHTML =
+        homeButtonHtml() +
         '<h2>🗺 Карта открытых смен</h2>' +
         '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Кто сейчас в смене и где — для планирования и распределения бригад по объектам.</div>' +
         '<div id="shifts-map-container"><div class="loading">Загрузка карты...</div></div>' +
@@ -1024,6 +1047,7 @@
         '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Выручка — сумма поля «Сумма» из отчётов по станку. Затраты — часы смен на этом станке × ставка мастера. Отсортировано от самых прибыльных к убыточным.</div>' +
         '<div class="list">' + objectsHtml + '</div>';
 
+      wireHomeButton();
       renderOpenShiftsMap();
     }).catch(showError);
   }
@@ -1074,7 +1098,7 @@
       var list = res[0];
       state.partsList = list;
       state.equipmentList = res[1];
-      var html = '';
+      var html = homeButtonHtml();
       if (can('parts.create')) html += '<button class="btn-primary" id="add-part">+ Заявка на запчасть</button>';
       html += '<div class="list">' + (list.length ? list.map(function (p) {
         return '<div class="card"><div class="card-title">' + escapeHtml(p['Наименование']) + ' × ' + escapeHtml(p['Количество']) + '</div>' +
@@ -1085,6 +1109,7 @@
           '</div>';
       }).join('') : '<div class="empty">Заявок нет</div>') + '</div>';
       content.innerHTML = html;
+      wireHomeButton();
       if (can('parts.create')) document.getElementById('add-part').addEventListener('click', openPartForm);
     }).catch(showError);
   }
@@ -1143,7 +1168,7 @@
     var content = document.getElementById('content');
     content.innerHTML = '<div class="loading">Загрузка...</div>';
     call('getUsers').then(function (list) {
-      var html = '';
+      var html = homeButtonHtml();
       if (can('users.create')) html += '<button class="btn-primary" id="add-user">+ Пользователь</button>';
       html += '<div class="list">' + list.map(function (u) {
         var isCreator = u['Роль'] === 'Создатель';
@@ -1167,6 +1192,7 @@
           '</div>';
       }).join('') + '</div>';
       content.innerHTML = html;
+      wireHomeButton();
       if (can('users.create')) document.getElementById('add-user').addEventListener('click', openUserForm);
       Array.prototype.forEach.call(document.querySelectorAll('.role-select'), function (sel) {
         sel.addEventListener('change', function () {
