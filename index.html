@@ -501,11 +501,17 @@
         '<button class="btn-back">← Назад</button>' +
         '<h2>' + escapeHtml(eq['Тип оборудования'] || '') + ' ' + escapeHtml(eq['Модель'] || '') + '</h2>' +
         (eq['Статус'] ? '<span class="status-pill" style="background:' + statusColorFor(eq['Статус']) + '">' + escapeHtml(eq['Статус'].toUpperCase()) + '</span>' : '') +
-        renderAllFields(eq, ['ID станка', 'Тип оборудования', 'Модель', 'Статус', 'Фото', 'Фото шильдика']) +
+        renderAllFields(eq, ['ID станка', 'Тип оборудования', 'Модель', 'Статус', 'Фото', 'Фото шильдика', 'Документация']) +
         (eq['Фото'] ? '<div class="detail-row"><span class="detail-label">Фото</span><span class="detail-value">' + photoLinksHtml(eq['Фото']) + '</span></div>' : '') +
         (eq['Фото шильдика'] ? '<div class="detail-row"><span class="detail-label">Фото шильдика</span><span class="detail-value">' + photoLinksHtml(eq['Фото шильдика']) + '</span></div>' : '') +
+        (eq['Документация'] ? '<div class="detail-row"><span class="detail-label">Документация</span><span class="detail-value">' + photoLinksHtml(eq['Документация']) + '</span></div>' : '') +
         detailRow('Ответственные', responsibles.join(', ') || 'не назначен') +
         '<div class="' + (hasResp ? 'resp-flag ok' : 'resp-flag warn') + '">' + (hasResp ? '✓ Ответственный назначен' : '⚠ Ответственный не назначен') + '</div>' +
+        (can('equipment.assign_responsible') ?
+          '<div class="claim-box"><label>👤 Назначить ответственным</label>' +
+          '<select id="assign-resp-select"><option value="">— загрузка списка... —</option></select>' +
+          '<button class="btn-secondary" id="assign-resp-btn" style="margin-top:8px;">Назначить</button></div>'
+          : '') +
         (can('equipment.edit') ? '<button class="btn-primary" id="detail-edit-eq">Редактировать</button>' : '') +
         (can('reports.create') ? '<button class="btn-primary" id="detail-add-report">+ Добавить отчет</button>' : '') +
         '<h3>История обслуживания (' + reports.length + ')</h3>' +
@@ -516,6 +522,23 @@
       if (editBtn) editBtn.addEventListener('click', function () { openEquipmentForm(eq); });
       var addBtn = document.getElementById('detail-add-report');
       if (addBtn) addBtn.addEventListener('click', function () { openReportForm(id); });
+
+      if (can('equipment.assign_responsible')) {
+        call('getUserNamesForAssignment').then(function (names) {
+          var select = document.getElementById('assign-resp-select');
+          select.innerHTML = '<option value="">— выберите пользователя —</option>' +
+            names.map(function (n) { return '<option value="' + escapeHtml(n) + '">' + escapeHtml(n) + '</option>'; }).join('');
+        }).catch(showError);
+        document.getElementById('assign-resp-btn').addEventListener('click', function () {
+          var name = document.getElementById('assign-resp-select').value;
+          if (!name) { showError(new Error('Сначала выберите пользователя')); return; }
+          call('assignResponsible', id, name).then(function (res) {
+            var msg = res.already ? (name + ' уже ответственный за этот станок') : (name + ' назначен ответственным (' + res.column + ')');
+            if (tg && tg.showAlert) tg.showAlert(msg); else alert(msg);
+            openEquipmentDetail(id);
+          }).catch(showError);
+        });
+      }
     }).catch(showError);
   }
 
@@ -578,6 +601,10 @@
         '<div class="field"><label>Фотография шильдика</label>' +
         '<input type="file" accept="image/*" id="nameplate-photo-input">' +
         '<div class="photo-preview" id="nameplate-photo-preview"></div></div>' +
+        '<div class="field"><label>Техническая документация (опционально, любые файлы)</label>' +
+        '<input type="file" multiple id="eq-docs-input">' +
+        '<div class="photo-preview" id="eq-docs-preview"></div></div>' +
+        (eq && eq['Документация'] ? '<div style="font-size:12px;color:var(--hint);margin-top:-4px;">Уже загружено: ' + photoLinksHtml(eq['Документация']) + '</div>' : '') +
       '</div>' +
       '<div class="claim-box"><label><input type="checkbox" id="f-claimRespEq"' + (alreadyResp ? ' checked disabled' : '') + '> 👤 Стать ответственным за этот станок</label>' +
       '<div class="detail-row" style="border:none;padding-top:6px;"><span class="detail-label">Ответственные сейчас</span><span class="detail-value">' + (getResponsibles(f).join(', ') || 'не назначен') + '</span></div>' +
@@ -611,6 +638,27 @@
       var file = nameplateInput.files[0];
       document.getElementById('nameplate-photo-preview').innerHTML = file ? '<div class="photo-chip">' + escapeHtml(file.name) + '</div>' : '';
     });
+    setupPhotoField('eq-docs');
+
+    // При выборе заказчика — если для него уже есть станки в базе, подставляем адрес/контакт/координаты
+    // из первого совпадения (можно поправить руками после подстановки)
+    document.getElementById('f-customer').addEventListener('change', function () {
+      var val = this.value.trim();
+      if (!val) return;
+      var matches = list.filter(function (e) { return String(e['Заказчик'] || '').toLowerCase() === val.toLowerCase(); });
+      if (!matches.length) return;
+      var sample = matches[0];
+      var contactInput = document.getElementById('f-contact');
+      var addressInput = document.getElementById('f-address');
+      if (!contactInput.value && sample['Контактное лицо']) contactInput.value = sample['Контактное лицо'];
+      if (!addressInput.value && sample['Адрес']) {
+        addressInput.value = sample['Адрес'];
+        if (sample['Широта'] && sample['Долгота']) {
+          document.getElementById('f-eqlat').value = sample['Широта'];
+          document.getElementById('f-eqlon').value = sample['Долгота'];
+        }
+      }
+    });
 
     document.getElementById('save-eq').addEventListener('click', function () {
       var btn = this;
@@ -622,10 +670,12 @@
         var stationIdentifier = eq ? eq['ID станка'] : (data.ourNumber || 'новый станок');
         var nameplateFile = nameplateInput.files[0];
         var nameplateUpload = nameplateFile ? fileToUpload(nameplateFile, stationIdentifier + ' | шильдик') : Promise.resolve(null);
+        var docsUpload = uploadPendingDocuments('eq-docs', stationIdentifier + ' | документация');
 
-        return Promise.all([uploadPendingPhotos('eq-photo', stationIdentifier + ' | прочие фотографии'), nameplateUpload]).then(function (res) {
+        return Promise.all([uploadPendingPhotos('eq-photo', stationIdentifier + ' | прочие фотографии'), nameplateUpload, docsUpload]).then(function (res) {
           if (res[0].length) data.photoFileIds = res[0];
           if (res[1]) data.nameplatePhotoFileId = res[1];
+          if (res[2].length) data.docFileIds = res[2];
           return eq ? call('updateEquipment', eq['ID станка'], data) : call('addEquipment', data);
         }).then(function (res) {
           if (claim) {
@@ -694,9 +744,9 @@
       formField('reportCustomer', 'Заказчик (сужает выбор станка)', presetEq ? (presetEq['Заказчик'] || '') : '', false, 'dl-report-customer') +
       '<div class="field"><label>Адрес объекта</label><input id="f-reportCustomerAddress" readonly style="opacity:.65;" value="' + escapeHtml(presetEq ? (presetEq['Адрес'] || '') : '') + '"></div>' +
       formField('ourNumber', 'Наш номер станка', presetOurNumber, false, 'dl-ournum') +
+      '<div id="eq-match-hint" style="font-size:14px;font-weight:600;margin:-4px 0 8px;"></div>' +
       '<div class="field"><label>Станок (определяется автоматически)</label>' +
       '<input id="f-equipmentId" value="' + escapeHtml(equipmentId || '') + '" readonly style="opacity:.65;"></div>' +
-      '<div id="eq-match-hint" style="font-size:12px;color:var(--hint);margin:-6px 0 10px;"></div>' +
       '<div id="eq-resp-hint" style="display:none;" class="resp-flag ok"></div>' +
       '<div class="claim-box"><label><input type="checkbox" id="f-claimRespReport"> 👤 Стать ответственным за этот станок</label></div>' +
       formField('workDate', 'Дата проведения работ', '', false, null, 'date') +
@@ -1376,6 +1426,28 @@
         var base64 = reader.result.split(',')[1];
         call('uploadPhoto', base64, file.type, caption || file.name).then(function (res) {
           resolve(res.link || res.fileId); // ссылка на сообщение в канале — если её не удалось построить, хотя бы file_id
+        }).catch(reject);
+      };
+      reader.onerror = function () { reject(new Error('Не удалось прочитать файл')); };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // То же самое, но для произвольных файлов (PDF, DOCX и т.п.) через uploadDocument
+  function uploadPendingDocuments(fieldId, caption) {
+    var input = document.getElementById(fieldId + '-input');
+    var files = (input && input._files) || [];
+    if (!files.length) return Promise.resolve([]);
+    return Promise.all(files.map(function (f) { return documentToUpload(f, caption); }));
+  }
+
+  function documentToUpload(file, caption) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var base64 = reader.result.split(',')[1];
+        call('uploadDocument', base64, file.type, file.name, caption).then(function (res) {
+          resolve(res.link);
         }).catch(reject);
       };
       reader.onerror = function () { reject(new Error('Не удалось прочитать файл')); };
