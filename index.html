@@ -49,7 +49,7 @@
   .tab-btn.active { background: var(--tab-color, var(--button)); color: #fff; }
   .card { background: #fff; border-radius: 14px; padding: 14px 16px; margin-bottom: 12px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
   .card-title { font-weight: 600; margin-bottom: 4px; }
-  .card-sub { font-size: 13px; color: var(--hint); white-space: pre-wrap; }
+  .card-sub { font-size: 13px; color: var(--hint); white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
   .empty, .loading, .error { color: var(--hint); text-align: center; padding: 24px 0; }
   .error { color: #e53935; }
   .btn-primary {
@@ -69,7 +69,8 @@
   }
   .field textarea { min-height: 70px; resize: vertical; }
   .detail-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
-  .detail-row .detail-value { white-space: pre-wrap; text-align: right; }
+  .detail-row .detail-value { white-space: pre-wrap; text-align: right; flex: 1 1 auto; min-width: 0; word-break: break-word; overflow-wrap: anywhere; }
+  .detail-row .detail-label { flex: 0 0 auto; max-width: 42%; }
   .detail-label { color: var(--hint); flex: 0 0 auto; }
   .legend { display: flex; gap: 16px; font-size: 12px; color: var(--hint); margin-bottom: 10px; }
   .legend span { display: flex; align-items: center; gap: 5px; }
@@ -113,7 +114,7 @@
   .eq-title { font-weight: 700; font-size: 14.5px; }
   .eq-line { font-size: 13.5px; margin-bottom: 3px; }
   .eq-line b { color: #555; font-weight: 600; }
-  .eq-comment { font-size: 13px; color: var(--hint); font-style: italic; margin: 4px 0; white-space: pre-wrap; }
+  .eq-comment { font-size: 13px; color: var(--hint); font-style: italic; margin: 4px 0; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
   .eq-meta { color: var(--hint); font-size: 12.5px; }
   .eq-history-title { font-size: 13px; color: var(--hint); margin: 12px 0 8px; font-weight: 600; }
   .eq-history { display: flex; flex-direction: column; gap: 10px; }
@@ -125,8 +126,8 @@
   .hist-date-badge span { font-size: 9px; font-weight: 500; color: var(--hint); text-transform: uppercase; }
   .hist-content { flex: 1; min-width: 0; }
   .hist-top { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; margin-bottom: 4px; }
-  .hist-desc { font-size: 13px; margin-bottom: 4px; white-space: pre-wrap; }
-  .hist-parts { font-size: 12px; color: var(--hint); white-space: pre-wrap; }
+  .hist-desc { font-size: 13px; margin-bottom: 4px; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
+  .hist-parts { font-size: 12px; color: var(--hint); white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; }
   h2 { font-size: 18px; margin: 8px 0 14px; }
   h3 { font-size: 15px; margin: 18px 0 8px; color: var(--hint); }
   .map-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 16px; }
@@ -1090,12 +1091,39 @@
         '<h2>🗺 Карта открытых смен</h2>' +
         '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Кто сейчас в смене и где — для планирования и распределения бригад по объектам.</div>' +
         '<div id="shifts-map-container"><div class="loading">Загрузка карты...</div></div>' +
+        '<h2 style="margin-top:24px;">👥 Сотрудники в смене</h2>' +
+        '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Показана текущая (если открыта) или последняя завершённая смена каждого сотрудника.</div>' +
+        '<div class="list" id="shift-overview-list"><div class="loading">Загрузка...</div></div>' +
         '<h2 style="margin-top:24px;">👷 По мастерам</h2>' +
         '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Ставка задаётся во вкладке «Пользователи». Часы считаются только по завершённым сменам.</div>' +
         '<div class="list">' + mastersHtml + '</div>' +
         '<h2 style="margin-top:24px;">🏭 По объектам (рентабельность)</h2>' +
         '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Выручка — сумма поля «Сумма» из отчётов по станку. Затраты — часы смен на этом станке × ставка мастера. Отсортировано от самых прибыльных к убыточным.</div>' +
         '<div class="list">' + objectsHtml + '</div>';
+
+      call('getShiftsOverview').then(function (overview) {
+        var overviewHtml = overview.length ? overview.map(function (s) {
+          var dateStr = (s.start.split(' ')[0]) || '—';
+          var startTime = (s.start.split(' ')[1] || '').slice(0, 5);
+          var endTime = s.end ? (s.end.split(' ')[1] || '').slice(0, 5) : '';
+          var durationText = s.durationMin !== '' ? Math.floor(s.durationMin / 60) + 'ч ' + (s.durationMin % 60) + 'м' : '—';
+          return '<div class="card">' +
+            '<div class="eq-title-row">' +
+              '<div class="card-title">' + escapeHtml(s.fullName) + '</div>' +
+              (s.isOpen ? '<span class="status-pill" style="background:#e53935;">В СМЕНЕ</span>' : '<span class="status-pill" style="background:#78909c;">НЕ В СМЕНЕ</span>') +
+            '</div>' +
+            '<div class="eq-line"><b>Дата:</b> ' + escapeHtml(dateStr) + '</div>' +
+            '<div class="eq-line"><b>Начало:</b> ' + escapeHtml(startTime || '—') + '</div>' +
+            '<div class="eq-line"><b>Окончание:</b> ' + (s.isOpen ? 'ещё идёт' : escapeHtml(endTime || '—')) + '</div>' +
+            '<div class="eq-line"><b>Длительность:</b> ' + durationText + '</div>' +
+            '</div>';
+        }).join('') : '<div class="empty">Пока ни у кого нет ни одной смены</div>';
+        var target = document.getElementById('shift-overview-list');
+        if (target) target.innerHTML = overviewHtml;
+      }).catch(function (err) {
+        var target = document.getElementById('shift-overview-list');
+        if (target) target.innerHTML = '<div class="error">' + escapeHtml(err.message || err) + '</div>';
+      });
 
       wireHomeButton();
       renderOpenShiftsMap();
