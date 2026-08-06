@@ -25,6 +25,7 @@
   #app { padding: 12px 16px 32px; }
   .header { display: flex; justify-content: space-between; align-items: center; padding: 6px 0 14px; }
   .header-user-name { font-weight: 700; font-size: 16px; }
+  .station-link { color: var(--link); text-decoration: underline; cursor: pointer; }
   .shift-quick-btn {
     display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 5px 12px;
     border: none; border-radius: 14px; background: #43a047; color: #fff; font-size: 12.5px; font-weight: 700;
@@ -104,7 +105,10 @@
     display: block; width: 100%; margin: 4px 0 14px; padding: 10px; border-radius: 12px; border: 1px solid var(--border);
     background: var(--secondary-bg); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer;
   }
-  .mine-toggle.active { background: var(--button); color: #fff; border-color: var(--button); }
+  .mine-toggle.active {
+    background: #43a047; color: #fff; border-color: #2e7d32;
+    box-shadow: 0 0 0 3px rgba(67,160,71,0.25); transform: scale(1.02);
+  }
   .status-pill {
     display: inline-block; padding: 3px 10px; border-radius: 10px; font-size: 10.5px; letter-spacing: .3px;
     color: #fff; font-weight: 700; white-space: nowrap;
@@ -387,6 +391,20 @@
     }).catch(function (err) { btn.disabled = false; showError(err); });
   });
 
+  // Клик по "Наш номер" где угодно в приложении (отчёты, запчасти, статистика и т.п.) — переход на карточку станка
+  document.addEventListener('click', function (e) {
+    var link = e.target.closest && e.target.closest('.station-link');
+    if (!link || !link.dataset.eqid) return;
+    e.stopPropagation();
+    openEquipmentDetail(link.dataset.eqid);
+  });
+
+  // Оборачивает "Наш № X" в кликабельную ссылку, ведущую на карточку станка (если ID известен)
+  function stationLinkHtml(label, equipmentId) {
+    if (!equipmentId) return escapeHtml(label);
+    return '<span class="station-link" data-eqid="' + escapeHtml(equipmentId) + '">' + escapeHtml(label) + '</span>';
+  }
+
   // ---------- Главная ----------
   function renderEquipment() {
     var content = document.getElementById('content');
@@ -406,9 +424,13 @@
     if (can('reports.create')) buttonsHtml += '<button class="btn-primary" id="add-report-home">📄 Добавить отчет</button>';
     if (can('equipment.create')) buttonsHtml += '<button class="btn-primary" id="add-eq">🏭 Добавить новое оборудование</button>';
 
+    var dashboardSourceList = equipmentFilterState.mine
+      ? list.filter(function (e) { return getResponsibles(e).indexOf(state.fullName) !== -1; })
+      : list;
+
     var dashTiles = [{ name: 'Все', color: '#495057', pastel: '#e9ecef' }].concat(visibleStatuses());
     var dashboardHtml = '<div class="status-dash">' + dashTiles.map(function (s) {
-      var count = s.name === 'Все' ? list.length : list.filter(function (e) { return e['Статус'] === s.name; }).length;
+      var count = s.name === 'Все' ? dashboardSourceList.length : dashboardSourceList.filter(function (e) { return e['Статус'] === s.name; }).length;
       if (s.name !== 'Все' && count === 0 && equipmentFilterState.status !== s.name) return ''; // скрываем пустые статусы
       var active = s.name === 'Все' ? !equipmentFilterState.status : equipmentFilterState.status === s.name;
       var extraClass = (active ? ' active' : '') + (s.bright ? ' bright' : '');
@@ -416,7 +438,9 @@
         '<div class="tile-label">' + escapeHtml(s.name) + '</div>' +
         '<div class="tile-count" style="color:' + s.color + '">' + count + '</div></button>';
     }).join('') + '</div>' +
-    '<button class="mine-toggle' + (equipmentFilterState.mine ? ' active' : '') + '" id="mine-filter">👤 Мои станки</button>';
+    '<button class="mine-toggle' + (equipmentFilterState.mine ? ' active' : '') + '" id="mine-filter">' +
+      (equipmentFilterState.mine ? '✅ Мои станки (включено)' : '👤 Мои станки') +
+    '</button>';
 
     content.innerHTML =
       dashboardHtml +
@@ -717,7 +741,7 @@
     ]));
     return '<div class="card">' +
       '<div class="eq-title-row">' +
-        '<div class="eq-title">Наш № ' + escapeHtml(r._ourNumber || '—') + (r._eqLabel ? ' · ' + escapeHtml(r._eqLabel) : '') + '</div>' +
+        '<div class="eq-title">' + stationLinkHtml('Наш № ' + (r._ourNumber || '—'), r['ID Станка']) + (r._eqLabel ? ' · ' + escapeHtml(r._eqLabel) : '') + '</div>' +
         (status ? '<span class="status-pill" style="background:' + statusColorFor(status) + '">' + escapeHtml(status.toUpperCase()) + '</span>' : '') +
       '</div>' +
       '<div class="eq-line"><b>ID станка:</b> ' + escapeHtml(r['ID Станка'] || '—') + '</div>' +
@@ -1078,7 +1102,7 @@
       var objectsHtml = data.objects.length ? data.objects.map(function (o) {
         var profitColor = o.profit >= 0 ? '#2e7d32' : '#c62828';
         return '<div class="card">' +
-          '<div class="card-title">Наш № ' + escapeHtml(o.ourNumber || o.equipmentId) + '</div>' +
+          '<div class="card-title">' + stationLinkHtml('Наш № ' + (o.ourNumber || o.equipmentId), o.equipmentId) + '</div>' +
           '<div class="eq-line"><b>Часов потрачено:</b> ' + o.hours + '</div>' +
           '<div class="eq-line"><b>Выручка:</b> ' + o.revenue.toLocaleString('ru-RU') + ' ₽</div>' +
           '<div class="eq-line"><b>Затраты (зарплата):</b> ' + o.cost.toLocaleString('ru-RU') + ' ₽</div>' +
@@ -1180,7 +1204,7 @@
       if (can('parts.create')) html += '<button class="btn-primary" id="add-part">+ Заявка на запчасть</button>';
       html += '<div class="list">' + (list.length ? list.map(function (p) {
         return '<div class="card"><div class="card-title">' + escapeHtml(p['Наименование']) + ' × ' + escapeHtml(p['Количество']) + '</div>' +
-          '<div class="card-sub">Наш № ' + escapeHtml(p['Наш номер'] || '—') + ' · Станок ' + escapeHtml(p['ID станка'] || '') + '</div>' +
+          '<div class="card-sub">' + stationLinkHtml('Наш № ' + (p['Наш номер'] || '—'), p['ID станка']) + '</div>' +
           '<div class="card-sub">Заказал: ' + escapeHtml(p['Кто заказал'] || '—') + '</div>' +
           (p['Дата доставки'] ? '<div class="card-sub">Нужно к: ' + escapeHtml(p['Дата доставки']) + '</div>' : '') +
           (p['Адрес'] ? '<div class="card-sub">Адрес: ' + escapeHtml(p['Адрес']) + '</div>' : '') +
