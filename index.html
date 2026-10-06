@@ -73,7 +73,27 @@
   .detail-row .detail-value { white-space: pre-wrap; text-align: right; flex: 1 1 auto; min-width: 0; word-break: break-word; overflow-wrap: anywhere; }
   .detail-row .detail-label { flex: 0 0 auto; max-width: 42%; }
   .detail-label { color: var(--hint); flex: 0 0 auto; }
-  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--hint); margin-bottom: 10px; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--hint); margin-bottom: 10px; flex-wrap: wrap; }
+  .cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .cal-nav .btn-secondary { margin: 0; padding: 7px 12px; font-size: 12.5px; }
+  .cal-nav-title { font-weight: 700; font-size: 14px; }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 4px; }
+  .cal-grid-header { margin-bottom: 2px; }
+  .cal-dow { text-align: center; font-size: 11px; color: var(--hint); font-weight: 600; padding: 2px 0; }
+  .cal-cell {
+    aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--border); background: #fff;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer;
+    font-size: 11px; padding: 2px;
+  }
+  .cal-cell.cal-empty { border: none; background: none; cursor: default; }
+  .cal-cell .cal-daynum { font-weight: 700; font-size: 12px; }
+  .cal-cell .cal-count { font-size: 9.5px; color: #333; }
+  .cal-cell.cal-min { background: #cfe8fb; }
+  .cal-cell.cal-max { background: #43a047; color: #fff; }
+  .cal-cell.cal-max .cal-count { color: #fff; }
+  .cal-cell.cal-weekend .cal-daynum { color: #e53935; }
+  .cal-cell.cal-max.cal-weekend .cal-daynum { color: #fff; }
+  .cal-cell.cal-today { box-shadow: 0 0 0 2px #2481cc inset; }
   .legend span { display: flex; align-items: center; gap: 5px; }
   .legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
   .eq-card.has-resp { border-left: 4px solid #43a047; }
@@ -1118,6 +1138,9 @@
         '<h2>🗺 Карта открытых смен</h2>' +
         '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Кто сейчас в смене и где — для планирования и распределения бригад по объектам.</div>' +
         '<div id="shifts-map-container"><div class="loading">Загрузка карты...</div></div>' +
+        '<h2 style="margin-top:24px;">📅 Календарь загрузки</h2>' +
+        '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Сколько разных сотрудников было в смене в каждый день — для планирования.</div>' +
+        '<div id="shift-calendar-container"><div class="loading">Загрузка...</div></div>' +
         '<h2 style="margin-top:24px;">👥 Сотрудники в смене</h2>' +
         '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Показана текущая (если открыта) или последняя завершённая смена каждого сотрудника.</div>' +
         '<div class="list" id="shift-overview-list"><div class="loading">Загрузка...</div></div>' +
@@ -1154,7 +1177,73 @@
 
       wireHomeButton();
       renderOpenShiftsMap();
+      renderShiftCalendar();
     }).catch(showError);
+  }
+
+  var calendarState = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
+  var MONTH_NAMES_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+
+  function renderShiftCalendar() {
+    var container = document.getElementById('shift-calendar-container');
+    container.innerHTML = '<div class="loading">Загрузка...</div>';
+    call('getShiftsCalendar', calendarState.year, calendarState.month).then(function (data) {
+      // Смещение первого дня месяца: 0 = понедельник ... 6 = воскресенье
+      var firstOffset = (new Date(data.year, data.month - 1, 1).getDay() + 6) % 7;
+
+      var cellsHtml = '';
+      for (var i = 0; i < firstOffset; i++) cellsHtml += '<div class="cal-cell cal-empty"></div>';
+      data.days.forEach(function (d) {
+        var dow = (firstOffset + d.day - 1) % 7;
+        var isWeekend = dow === 5 || dow === 6;
+        var today = new Date();
+        var isToday = today.getFullYear() === data.year && (today.getMonth() + 1) === data.month && today.getDate() === d.day;
+        var levelClass = d.count === 0 ? 'cal-none' : (d.count === 1 ? 'cal-min' : 'cal-max');
+        cellsHtml += '<div class="cal-cell ' + levelClass + (isWeekend ? ' cal-weekend' : '') + (isToday ? ' cal-today' : '') +
+          '" data-day="' + d.day + '" data-names="' + escapeHtml(d.names.join(', ')) + '">' +
+          '<div class="cal-daynum">' + d.day + '</div>' +
+          (d.count ? '<div class="cal-count">' + d.count + (d.count === 1 ? ' чел.' : ' чел.') + '</div>' : '') +
+          '</div>';
+      });
+
+      container.innerHTML =
+        '<div class="cal-nav">' +
+          '<button class="btn-secondary" id="cal-prev">← Пред.</button>' +
+          '<div class="cal-nav-title">' + MONTH_NAMES_RU[data.month - 1] + ' ' + data.year + '</div>' +
+          '<button class="btn-secondary" id="cal-next">След. →</button>' +
+        '</div>' +
+        '<div class="cal-grid cal-grid-header">' +
+          ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС'].map(function (d) { return '<div class="cal-dow">' + d + '</div>'; }).join('') +
+        '</div>' +
+        '<div class="cal-grid">' + cellsHtml + '</div>' +
+        '<div class="legend" style="margin-top:10px;">' +
+          '<span><i style="background:#fff;border:1px solid var(--border);"></i> Нет смен</span>' +
+          '<span><i style="background:#cfe8fb;"></i> Мин. нагрузка</span>' +
+          '<span><i style="background:#43a047;"></i> Макс. нагрузка</span>' +
+        '</div>' +
+        '<div id="cal-day-detail" style="font-size:13px;color:var(--hint);margin-top:8px;">Нажмите на день, чтобы увидеть, кто был в смене.</div>';
+
+      document.getElementById('cal-prev').addEventListener('click', function () {
+        calendarState.month--;
+        if (calendarState.month < 1) { calendarState.month = 12; calendarState.year--; }
+        renderShiftCalendar();
+      });
+      document.getElementById('cal-next').addEventListener('click', function () {
+        calendarState.month++;
+        if (calendarState.month > 12) { calendarState.month = 1; calendarState.year++; }
+        renderShiftCalendar();
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.cal-cell[data-day]'), function (cell) {
+        cell.addEventListener('click', function () {
+          var names = cell.dataset.names;
+          var day = cell.dataset.day;
+          var detail = document.getElementById('cal-day-detail');
+          detail.textContent = names ? (day + ' число: ' + names) : (day + ' число — смен не было');
+        });
+      });
+    }).catch(function (err) {
+      container.innerHTML = '<div class="error">' + escapeHtml(err.message || err) + '</div>';
+    });
   }
 
   function renderOpenShiftsMap() {
