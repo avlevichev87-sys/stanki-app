@@ -37,6 +37,9 @@
     100% { box-shadow: 0 0 0 0 rgba(229,57,53,0); }
   }
   .app-version { text-align: right; font-size: 11px; color: var(--hint); margin-bottom: 2px; }
+  .queue-badge { background: #fff3cd; border: 1px solid #f0c36d; color: #7a5a00; border-radius: 10px; padding: 7px 10px; font-size: 12.5px; font-weight: 600; margin-bottom: 8px; cursor: pointer; }
+  .toast { position: fixed; left: 16px; right: 16px; bottom: 20px; background: #323232; color: #fff; padding: 12px 14px; border-radius: 12px; font-size: 13.5px; z-index: 9999; box-shadow: 0 4px 14px rgba(0,0,0,.3); }
+  .cust-chip { display: inline-block; background: #e8f1fb; color: #1b5fa8; border-radius: 14px; padding: 4px 10px; margin: 0 6px 6px 0; font-size: 12.5px; cursor: pointer; }
   .role { color: var(--hint); font-size: 13px; }
   .header-logo-badge { height: 88px; flex: 0 0 auto; }
   .header-logo-badge img { height: 100%; width: auto; object-fit: contain; display: block; }
@@ -228,18 +231,325 @@
 
   var equipmentFilterState = { status: null, mine: false, query: '' };
 
-  function call(fnName) {
-    var args = Array.prototype.slice.call(arguments, 1);
+  // ====================================================================
+  // Сетевой слой и очередь «Не отправлено» (IndexedDB на телефоне)
+  // ====================================================================
+
+  // Низкоуровневый вызов серверной функции. requestId — ключ идемпотентности: сервер не выполнит действие
+  // повторно, если уже выполнял его с таким requestId (ответ мог потеряться по дороге).
+  // Ошибки связи и «сервер вернул HTML вместо JSON» помечаются retryable — их имеет смысл повторить позже.
+  function send(fnName, args, requestId) {
+    var body = { action: fnName, args: [initData].concat(args) };
+    if (requestId) body.requestId = requestId;
     return fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: fnName, args: [initData].concat(args) })
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (res) {
-        if (res && res.success) return res.data;
-        throw new Error((res && res.error) || 'Неизвестная ошибка');
+      body: JSON.stringify(body)
+    }).then(function (r) { return r.text(); }).catch(function () {
+      var e = new Error('Нет связи с сервером. Проверьте интернет.');
+      e.retryable = true;
+      throw e;
+    }).then(function (text) {
+      var res;
+      try { res = JSON.parse(text); } catch (parseErr) {
+        var e = new Error('Сервер временно недоступен (ответил не в том формате). Попробуйте ещё раз через минуту.');
+        e.retryable = true;
+        throw e;
+      }
+      if (res && res.success) return res.data;
+      throw new Error((res && res.error) || 'Неизвестная ошибка');
+    });
+  }
+
+  function call(fnName) {
+    return send(fnName, Array.prototype.slice.call(arguments, 1));
+  }
+
+  var queueDbPromise = null;
+  function openQueueDb() {
+    if (queueDbPromise) return queueDbPromise;
+    queueDbPromise = new Promise(function (resolve, reject) {
+      try {
+        if (!window.indexedDB) { reject(new Error('IndexedDB недоступна')); return; }
+        var req = window.indexedDB.open('stanki-queue', 1);
+        req.onupgradeneeded = function () { req.result.createObjectStore('items', { keyPath: 'qid' }); };
+        req.onsuccess = function () { resolve(req.result); };
+        req.onerror = function () { reject(req.error || new Error('IndexedDB error')); };
+        req.onblocked = function () { reject(new Error('IndexedDB blocked')); };
+      } catch (e) { reject(e); }
+    });
+    queueDbPromise.catch(function () { queueDbPromise = null; });
+    return queueDbPromise;
+  }
+  function idb(mode, fn) {
+    return openQueueDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        var tx = db.transaction('items', mode);
+        var out;
+        fn(tx.objectStore('items'), function (v) { out = v; });
+        tx.oncomplete = function () { resolve(out); };
+        tx.onerror = function () { reject(tx.error || new Error('IndexedDB tx error')); };
+        tx.onabort = function () { reject(tx.error || new Error('IndexedDB tx aborted')); };
       });
+    });
+  }
+  function qPut(item) { return idb('readwrite', function (s) { s.put(item); }); }
+  function qDelete(qid) { return idb('readwrite', function (s) { s['delete'](qid); }); }
+  function qAll() {
+    return idb('readonly', function (s, set) {
+      var r = s.getAll();
+      r.onsuccess = function () { set(r.result || []); };
+    });
+  }
+  function safePut(item) { return qPut(item).catch(function () {}); }
+
+  // В очереди лежат только записи текущего пользователя (на одном телефоне могут заходить разные люди)
+  function myItems(all) {
+    var me = String(state.telegramId || '');
+    return all.filter(function (it) { return it.owner === me; }).sort(function (a, b) { return a.createdAt - b.createdAt; });
+  }
+
+  function newQid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  function pendingFiles(fieldId) {
+    var input = document.getElementById(fieldId + '-input');
+    return (input && input._files) || [];
+  }
+  function readAsBase64(blob) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(String(reader.result).split(',')[1]); };
+      reader.onerror = function () { reject(new Error('Не удалось прочитать файл')); };
+      reader.readAsDataURL(blob);
+    });
+  }
+  function ignoreUnlessRetryable(e) { if (e && e.retryable) throw e; }
+
+  // Загружает файлы записи в Telegram-канал. Уже загруженные (item.uploaded) пропускает — при повторе фото не дублируются.
+  function uploadItemFiles(item) {
+    var chain = Promise.resolve();
+    (item.files || []).forEach(function (f, i) {
+      chain = chain.then(function () {
+        if (item.uploaded[i]) return null;
+        return readAsBase64(f.file).then(function (b64) {
+          var isDoc = f.kind === 'doc';
+          return send(isDoc ? 'uploadDocument' : 'uploadPhoto',
+            isDoc ? [b64, f.type, f.name, f.caption] : [b64, f.type, f.caption || f.name],
+            item.qid + 'f' + i);
+        }).then(function (res) {
+          item.uploaded[i] = res.link || res.fileId;
+          return safePut(item);
+        });
+      });
+    });
+    return chain;
+  }
+  function applyUploads(item) {
+    var data = item.args[item.args.length - 1];
+    var arrays = {};
+    (item.files || []).forEach(function (f, i) {
+      var link = item.uploaded[i];
+      if (!link) return;
+      if (f.target === 'nameplatePhotoFileId') data.nameplatePhotoFileId = link;
+      else (arrays[f.target] = arrays[f.target] || []).push(link);
+    });
+    Object.keys(arrays).forEach(function (k) { data[k] = arrays[k]; });
+  }
+
+  // Один шаг очереди: [стать ответственным] → [файлы] → основное действие → [стать ответственным]
+  // Прогресс сохраняется (item.done / item.uploaded), чтобы после обрыва ничего не выполнялось дважды.
+  function processItem(item) {
+    item.done = item.done || {};
+    item.uploaded = item.uploaded || {};
+    var p = Promise.resolve();
+    if (item.claim && item.claim.mode === 'pre' && !item.done.pre) {
+      p = p.then(function () {
+        return send('claimResponsibility', [item.claim.equipmentId], item.qid + 'c').then(null, ignoreUnlessRetryable);
+      }).then(function () { item.done.pre = true; return safePut(item); });
+    }
+    p = p.then(function () { return uploadItemFiles(item); });
+    p = p.then(function () {
+      if (item.done.main) return item.mainResult;
+      applyUploads(item);
+      return send(item.action, item.args, item.qid).then(function (res) {
+        item.done.main = true;
+        item.mainResult = res;
+        return safePut(item).then(function () { return res; });
+      });
+    });
+    p = p.then(function (res) {
+      if (item.claim && item.claim.mode === 'post' && !item.done.post) {
+        var eqId = item.claim.equipmentId || (res && res.id);
+        if (eqId) {
+          return send('claimResponsibility', [eqId], item.qid + 'c').then(null, ignoreUnlessRetryable).then(function () {
+            item.done.post = true;
+            return safePut(item).then(function () { return res; });
+          });
+        }
+      }
+      return res;
+    });
+    return p;
+  }
+
+  var flushChain = Promise.resolve();
+  function enqueueFlush() {
+    var p = flushChain.then(doFlush);
+    flushChain = p.then(function () {}, function () {});
+    return p;
+  }
+  // Отправляет накопленное по порядку; на первой ошибке связи останавливается (порядок важен: начало смены → конец смены)
+  function doFlush() {
+    return qAll().then(function (all) {
+      var results = {};
+      var chain = Promise.resolve(true);
+      myItems(all).forEach(function (item) {
+        chain = chain.then(function (cont) {
+          if (!cont) return false;
+          return processItem(item).then(function (res) {
+            results[item.qid] = { sent: true, result: res, title: item.title, action: item.action };
+            return qDelete(item.qid).then(function () { return true; }, function () { return true; });
+          }, function (err) {
+            if (err && err.retryable) { results[item.qid] = { queued: true, title: item.title }; return false; }
+            results[item.qid] = { error: err, title: item.title };
+            return qDelete(item.qid).then(function () { return true; }, function () { return true; });
+          });
+        });
+      });
+      return chain.then(function () { return results; });
+    });
+  }
+
+  // Главная точка сохранения. Сначала запись надёжно кладётся в память телефона, потом идёт отправка.
+  // Результат: {sent:true,result} — ушло на сервер; {queued:true} — нет связи, уйдёт само.
+  // Ошибку (отказ сервера: нет прав, дубль и т.п.) возвращает как обычное исключение — форма остаётся открытой.
+  function submitQueued(item) {
+    item.qid = newQid();
+    item.createdAt = Date.now();
+    item.owner = String(state.telegramId || '');
+    item.done = {};
+    item.uploaded = {};
+    item.args[item.args.length - 1].clientTimeMs = item.createdAt;
+    return qPut(item).then(function () { return true; }, function () { return false; }).then(function (persisted) {
+      if (!persisted) {
+        // Память телефона недоступна — работаем как раньше, без очереди
+        return processItem(item).then(function (res) { return { sent: true, result: res }; });
+      }
+      return enqueueFlush().then(function (results) {
+        var mine = results[item.qid];
+        notifyResults(results, item.qid);
+        if (mine && mine.error) throw mine.error;
+        return mine && mine.sent ? { sent: true, result: mine.result } : { queued: true };
+      });
+    });
+  }
+
+  function notifyResults(results, exceptQid) {
+    var shiftTouched = false;
+    Object.keys(results || {}).forEach(function (qid) {
+      var r = results[qid];
+      if (r.sent && (r.action === 'startShift' || r.action === 'endShift')) shiftTouched = true;
+      if (qid === exceptQid) return;
+      if (r.sent) showToast('✅ Отправлено: ' + r.title);
+      else if (r.error) showError(new Error('Не удалось отправить «' + r.title + '»: ' + (r.error.message || r.error)));
+    });
+    if (shiftTouched) refreshShiftState();
+    updateQueueBadge();
+  }
+
+  function refreshShiftState() {
+    call('getMyOpenShift').then(function (shift) { state.openShift = shift; updateShiftButtonUI(); }).catch(function () {});
+  }
+
+  function showToast(msg) {
+    var t = document.createElement('div');
+    t.className = 'toast';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 4500);
+  }
+
+  function updateQueueBadge() {
+    var el = document.getElementById('queue-badge');
+    if (!el) return;
+    qAll().then(function (all) {
+      var n = myItems(all).length;
+      if (!n) { el.style.display = 'none'; return; }
+      el.style.display = 'block';
+      el.textContent = '📤 Не отправлено: ' + n + ' — нажмите, чтобы отправить сейчас';
+    }).catch(function () {});
+  }
+
+  function flushNow() {
+    showToast('Отправляем…');
+    enqueueFlush().then(function (results) {
+      notifyResults(results);
+      return qAll().then(function (all) {
+        if (myItems(all).length) showToast('Связи по-прежнему нет — отправим автоматически, когда появится');
+      });
+    }).catch(function () { showToast('Не удалось отправить, попробуем позже'); });
+  }
+
+  function backgroundFlush() {
+    if (!state.telegramId) return;
+    qAll().then(function (all) {
+      if (!myItems(all).length) return null;
+      return enqueueFlush().then(function (results) { notifyResults(results); });
+    }).catch(function () {});
+  }
+
+  function renderQueuedNotice(title) {
+    var content = document.getElementById('content');
+    content.innerHTML =
+      '<div class="claim-box" style="border-color:#fb8c00;background:#fff8ec;">' +
+        '<h2 style="margin-top:0;">📤 Сохранено на телефоне</h2>' +
+        '<div style="font-size:14px;">«' + escapeHtml(title) + '» пока не отправлено: нет связи с сервером. ' +
+        'Оно отправится автоматически, как только связь появится. Сколько записей ждёт отправки — видно вверху экрана.</div>' +
+      '</div>' +
+      '<button class="btn-primary" id="queued-ok-btn">Понятно</button>';
+    document.getElementById('queued-ok-btn').addEventListener('click', goHome);
+  }
+  function finishSubmit(r, title, nextFn) {
+    if (r.queued) { updateQueueBadge(); renderQueuedNotice(title); return; }
+    nextFn();
+  }
+  function formatLocalStamp(ms) {
+    var d = new Date(ms);
+    function p(n) { return n < 10 ? '0' + n : '' + n; }
+    return p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear() + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+
+  // ====================================================================
+  // Справочник заказчиков
+  // ====================================================================
+  var LEGAL_FORMS = ['ооо', 'оао', 'зао', 'пао', 'ао', 'ип', 'нпо', 'тоо'];
+  function normCustomer(s) {
+    var t = String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/[«»"'`“”„]/g, ' ').replace(/[.,;:()]/g, ' ').replace(/\s+/g, ' ').trim();
+    return t.split(' ').filter(function (w) { return w && LEGAL_FORMS.indexOf(w) === -1; }).join(' ');
+  }
+  function matchCustomer(name) {
+    var key = normCustomer(name);
+    if (!key) return null;
+    var list = state.customers || [];
+    for (var i = 0; i < list.length; i++) {
+      if (normCustomer(list[i]['Название']) === key) return list[i];
+    }
+    return null;
+  }
+  function similarCustomers(name) {
+    var key = normCustomer(name);
+    if (key.length < 2) return [];
+    return (state.customers || []).filter(function (c) {
+      var k = normCustomer(c['Название']);
+      return k && (k.indexOf(key) !== -1 || key.indexOf(k) !== -1);
+    }).slice(0, 5);
+  }
+  function loadCustomers() {
+    return call('getCustomers').then(function (list) { state.customers = list || []; }).catch(function () {});
+  }
+  // Подсказки заказчиков: из справочника; пока он пуст — из уже введённых станков (как было раньше)
+  function customerNamesForList(eqList) {
+    var dir = (state.customers || []).map(function (c) { return c['Название']; });
+    return dir.length ? dir : fieldValues(eqList, 'Заказчик');
   }
 
   function can(action) {
@@ -338,6 +648,7 @@
     var hasHome = can('equipment.view');
 
     app.innerHTML =
+      '<div id="queue-badge" class="queue-badge" style="display:none;"></div>' +
       (state.appVersion ? '<div class="app-version">' + escapeHtml(state.appVersion) + '</div>' : '') +
       '<div class="header"><div>' +
       '<div class="header-user-name">' + escapeHtml(state.fullName) + '</div>' +
@@ -367,6 +678,10 @@
     Array.prototype.forEach.call(document.querySelectorAll('.tab-btn'), function (btn) {
       btn.addEventListener('click', function () { setTab(btn.dataset.tab); });
     });
+    document.getElementById('queue-badge').addEventListener('click', flushNow);
+    loadCustomers();
+    backgroundFlush();
+    updateQueueBadge();
     if (hasHome) renderEquipment();
     else setTab(tabs.length ? tabs[0][0] : null);
   }
@@ -434,7 +749,15 @@
       state.equipmentList = list;
       equipmentFilterState = { status: null, mine: false, query: equipmentFilterState.query || '' };
       renderEquipmentHome();
-    }).catch(showError);
+    }).catch(function (err) {
+      if (err && err.retryable && state.equipmentList && state.equipmentList.length) {
+        showToast('Нет связи — показаны ранее загруженные данные');
+        equipmentFilterState = { status: null, mine: false, query: equipmentFilterState.query || '' };
+        renderEquipmentHome();
+        return;
+      }
+      showError(err);
+    });
   }
 
   function renderEquipmentHome() {
@@ -639,6 +962,7 @@
         formField('invNumber', 'Инвентарный номер', f['Инвентарный номер'], false, 'dl-inv') +
         formField('factoryNumber', 'Заводской номер', f['Заводской номер'], false, 'dl-factorynum') +
         formField('customer', 'Заказчик', f['Заказчик'], false, 'dl-customer') +
+        '<div id="customer-hint"></div>' +
         formField('contact', 'Контактное лицо', f['Контактное лицо'], false, 'dl-contact') +
         formField('address', 'Адрес', f['Адрес'], false, 'dl-address') +
         '<input type="hidden" id="f-eqlat" value="' + escapeHtml(f['Широта'] || '') + '">' +
@@ -664,7 +988,7 @@
       buildDatalist('dl-type', fieldValues(list, 'Тип оборудования')) +
       buildDatalist('dl-model', fieldValues(list, 'Модель')) +
       buildDatalist('dl-factory', fieldValues(list, 'Завод изготовитель')) +
-      buildDatalist('dl-customer', fieldValues(list, 'Заказчик')) +
+      buildDatalist('dl-customer', customerNamesForList(list)) +
       buildDatalist('dl-contact', fieldValues(list, 'Контактное лицо')) +
       buildDatalist('dl-address', fieldValues(list, 'Адрес'));
 
@@ -690,23 +1014,70 @@
 
     // При выборе заказчика — если для него уже есть станки в базе, подставляем адрес/контакт/координаты
     // из первого совпадения (можно поправить руками после подстановки)
-    document.getElementById('f-customer').addEventListener('change', function () {
-      var val = this.value.trim();
-      if (!val) return;
-      var matches = list.filter(function (e) { return String(e['Заказчик'] || '').toLowerCase() === val.toLowerCase(); });
-      if (!matches.length) return;
-      var sample = matches[0];
+    function applyCustomerEntry(src) {
+      if (!src) return;
       var contactInput = document.getElementById('f-contact');
       var addressInput = document.getElementById('f-address');
-      if (!contactInput.value && sample['Контактное лицо']) contactInput.value = sample['Контактное лицо'];
-      if (!addressInput.value && sample['Адрес']) {
-        addressInput.value = sample['Адрес'];
-        if (sample['Широта'] && sample['Долгота']) {
-          document.getElementById('f-eqlat').value = sample['Широта'];
-          document.getElementById('f-eqlon').value = sample['Долгота'];
+      if (!contactInput.value && src['Контактное лицо']) contactInput.value = src['Контактное лицо'];
+      if (!addressInput.value && src['Адрес']) {
+        addressInput.value = src['Адрес'];
+        if (src['Широта'] && src['Долгота']) {
+          document.getElementById('f-eqlat').value = src['Широта'];
+          document.getElementById('f-eqlon').value = src['Долгота'];
         }
       }
-    });
+    }
+
+    function checkCustomerField() {
+      var input = document.getElementById('f-customer');
+      var hint = document.getElementById('customer-hint');
+      var val = input.value.trim();
+      hint.innerHTML = '';
+      if (!val) return;
+      var dir = state.customers || [];
+      if (!dir.length) {
+        // Справочник ещё не заполнен — прежнее поведение: подставляем данные по уже введённым станкам
+        var legacy = list.filter(function (e) { return String(e['Заказчик'] || '').toLowerCase() === val.toLowerCase(); });
+        if (legacy.length) applyCustomerEntry(legacy[0]);
+        return;
+      }
+      var m = matchCustomer(val);
+      if (m) {
+        input.value = m['Название'];
+        var sampleEq = list.filter(function (e) { return e['Заказчик'] === m['Название']; })[0];
+        applyCustomerEntry(m['Адрес'] || m['Контактное лицо'] ? m : sampleEq);
+        return;
+      }
+      var similar = similarCustomers(val);
+      var html = '<div style="color:#e53935;font-size:12.5px;margin:4px 0;">Заказчика «' + escapeHtml(val) + '» нет в справочнике.</div>';
+      if (similar.length) {
+        html += '<div style="font-size:12.5px;color:var(--hint);margin-bottom:4px;">Возможно, это один из них (нажмите, чтобы выбрать):</div><div>' +
+          similar.map(function (cu) { return '<span class="cust-chip" data-name="' + escapeHtml(cu['Название']) + '">' + escapeHtml(cu['Название']) + '</span>'; }).join('') + '</div>';
+      }
+      if (can('equipment.create')) {
+        html += '<button type="button" class="btn-secondary" id="add-customer-btn" style="margin-top:6px;">➕ Добавить «' + escapeHtml(val) + '» в справочник</button>';
+      }
+      hint.innerHTML = html;
+      Array.prototype.forEach.call(hint.querySelectorAll('.cust-chip'), function (chip) {
+        chip.addEventListener('click', function () { input.value = chip.dataset.name; checkCustomerField(); });
+      });
+      var addBtn = document.getElementById('add-customer-btn');
+      if (addBtn) addBtn.addEventListener('click', function () {
+        addBtn.disabled = true;
+        call('addCustomer', {
+          name: val, contact: document.getElementById('f-contact').value, address: document.getElementById('f-address').value,
+          lat: document.getElementById('f-eqlat').value, lon: document.getElementById('f-eqlon').value
+        }).then(function (res) {
+          return loadCustomers().then(function () {
+            input.value = res.name;
+            hint.innerHTML = '';
+            showToast(res.existed ? 'Такой заказчик уже был в справочнике — подставлено его название' : '✅ Заказчик добавлен в справочник');
+          });
+        }).catch(function (err) { addBtn.disabled = false; showError(err); });
+      });
+    }
+    document.getElementById('f-customer').addEventListener('change', checkCustomerField);
+    if (f['Заказчик']) checkCustomerField();
 
     document.getElementById('save-eq').addEventListener('click', function () {
       var btn = this;
@@ -714,23 +1085,34 @@
         var data = collectForm(['invNumber', 'ourNumber', 'factoryNumber', 'type', 'model', 'year', 'factory', 'status', 'customer', 'contact', 'address', 'comment']);
         data.lat = document.getElementById('f-eqlat').value;
         data.lon = document.getElementById('f-eqlon').value;
+        var custTyped = String(data.customer || '').trim();
+        if (custTyped && (state.customers || []).length) {
+          var custMatch = matchCustomer(custTyped);
+          if (!custMatch) {
+            return Promise.reject(new Error('Заказчика «' + custTyped + '» нет в справочнике. Выберите из списка или нажмите «➕ Добавить в справочник» под полем «Заказчик».'));
+          }
+          data.customer = custMatch['Название'];
+        }
         var claim = document.getElementById('f-claimRespEq').checked && !alreadyResp;
         var stationIdentifier = eq ? eq['ID станка'] : (data.ourNumber || 'новый станок');
+        var files = [];
+        pendingFiles('eq-photo').forEach(function (f) {
+          files.push({ target: 'photoFileIds', kind: 'photo', file: f, name: f.name, type: f.type, caption: stationIdentifier + ' | прочие фотографии' });
+        });
         var nameplateFile = nameplateInput.files[0];
-        var nameplateUpload = nameplateFile ? fileToUpload(nameplateFile, stationIdentifier + ' | шильдик') : Promise.resolve(null);
-        var docsUpload = uploadPendingDocuments('eq-docs', stationIdentifier + ' | документация');
-
-        return Promise.all([uploadPendingPhotos('eq-photo', stationIdentifier + ' | прочие фотографии'), nameplateUpload, docsUpload]).then(function (res) {
-          if (res[0].length) data.photoFileIds = res[0];
-          if (res[1]) data.nameplatePhotoFileId = res[1];
-          if (res[2].length) data.docFileIds = res[2];
-          return eq ? call('updateEquipment', eq['ID станка'], data) : call('addEquipment', data);
-        }).then(function (res) {
-          if (claim) {
-            var eqId = eq ? eq['ID станка'] : res.id;
-            return call('claimResponsibility', eqId).catch(function () {}); // не критично, если не получится
-          }
-        }).then(renderEquipment);
+        if (nameplateFile) {
+          files.push({ target: 'nameplatePhotoFileId', kind: 'photo', file: nameplateFile, name: nameplateFile.name, type: nameplateFile.type, caption: stationIdentifier + ' | шильдик' });
+        }
+        pendingFiles('eq-docs').forEach(function (f) {
+          files.push({ target: 'docFileIds', kind: 'doc', file: f, name: f.name, type: f.type, caption: stationIdentifier + ' | документация' });
+        });
+        return submitQueued({
+          title: 'Станок ' + (data.ourNumber || stationIdentifier),
+          action: eq ? 'updateEquipment' : 'addEquipment',
+          args: eq ? [eq['ID станка'], data] : [data],
+          files: files,
+          claim: claim ? { mode: 'post', equipmentId: eq ? eq['ID станка'] : null } : null
+        }).then(function (r) { finishSubmit(r, 'Станок', renderEquipment); });
       });
     });
   }
@@ -826,7 +1208,7 @@
       photoField('rep-photo') +
       '<button class="btn-primary" id="save-report">Сохранить</button>' +
       buildDatalist('dl-ournum', fieldValues(eqList, 'Наш номер')) +
-      buildDatalist('dl-report-customer', fieldValues(eqList, 'Заказчик')) +
+      buildDatalist('dl-report-customer', customerNamesForList(eqList)) +
       buildDatalist('dl-ourparts', fieldValues(reports, 'Наши запчасти')) +
       buildDatalist('dl-custparts', fieldValues(reports, 'Запчасти заказчика'));
 
@@ -916,14 +1298,15 @@
       // на тот же ID, под которым отчёт сохранится в таблице
       data.reportId = 'RPT-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
       guardedSave(btn, function () {
-        var claimPromise = claim ? call('claimResponsibility', data.equipmentId).catch(function () {}) : Promise.resolve();
-        return claimPromise.then(function () {
-          var photoCaption = data.equipmentId + ' | Отчёт: ' + data.reportId + ' | ID смены: ' + (currentShiftId || 'нет активной смены');
-          return uploadPendingPhotos('rep-photo', photoCaption);
-        }).then(function (fileIds) {
-          if (fileIds.length) data.photoFileIds = fileIds;
-          return call('addReport', data);
-        }).then(renderReports);
+        var photoCaption = data.equipmentId + ' | Отчёт: ' + data.reportId + ' | ID смены: ' + (currentShiftId || 'нет активной смены');
+        var files = pendingFiles('rep-photo').map(function (f) {
+          return { target: 'photoFileIds', kind: 'photo', file: f, name: f.name, type: f.type, caption: photoCaption };
+        });
+        return submitQueued({
+          title: 'Отчёт по станку ' + (document.getElementById('f-ourNumber').value || data.equipmentId),
+          action: 'addReport', args: [data], files: files,
+          claim: claim ? { mode: 'pre', equipmentId: data.equipmentId } : null
+        }).then(function (r) { finishSubmit(r, 'Отчёт', renderReports); });
       });
     });
   }
@@ -982,11 +1365,23 @@
   function renderShiftTab() {
     var content = document.getElementById('content');
     content.innerHTML = '<div class="loading">Загрузка...</div>';
-    Promise.all([call('getMyOpenShift'), call('getEquipmentList')]).then(function (res) {
+    // Сначала досылаем накопленное (чтобы сервер видел актуальное состояние смены), потом показываем экран
+    enqueueFlush().then(notifyResults, function () {}).then(function () {
+      return Promise.all([call('getMyOpenShift'), call('getEquipmentList')]);
+    }).then(function (res) {
       state.equipmentList = res[1];
+      state.openShift = res[0];
+      updateShiftButtonUI();
       if (res[0]) renderEndShiftView(res[0]);
       else renderStartShiftView();
-    }).catch(showError);
+    }).catch(function (err) {
+      if (err && err.retryable) {
+        showToast('Нет связи — показаны данные, сохранённые на телефоне');
+        if (state.openShift) renderEndShiftView(state.openShift); else renderStartShiftView();
+        return;
+      }
+      showError(err);
+    });
   }
 
   function renderEndShiftView(shift) {
@@ -1016,12 +1411,19 @@
             lat: geo ? geo.lat : '', lon: geo ? geo.lon : '',
             targetLat: shift['Широта начала'] || '', targetLon: shift['Долгота начала'] || ''
           };
-          return call('endShift', data);
-        }).then(function (res) {
-          if (tg && tg.showAlert) tg.showAlert('Смена завершена.\n' + res.matchLabel); else alert('Смена завершена. ' + res.matchLabel);
+          return submitQueued({ title: 'Завершение смены', action: 'endShift', args: [data], files: [] });
+        }).then(function (r) {
           state.openShift = null;
           updateShiftButtonUI();
-          renderShiftTab();
+          if (r.sent) {
+            var msg = 'Смена завершена.\n' + r.result.matchLabel;
+            if (tg && tg.showAlert) tg.showAlert(msg); else alert(msg);
+            renderShiftTab();
+          } else {
+            showToast('📤 Нет связи — завершение смены сохранено и отправится автоматически');
+            updateQueueBadge();
+            renderQueuedNotice('Завершение смены');
+          }
         });
       });
     });
@@ -1043,7 +1445,7 @@
       '<button class="btn-primary" id="start-shift-btn" style="background:#43a047;">🟢 Начать смену</button>' +
       '<div id="shift-gps-status" style="font-size:13px;color:var(--hint);margin-top:10px;text-align:center;"></div>' +
       buildDatalist('dl-shift-ournum', fieldValues(eqList, 'Наш номер')) +
-      buildDatalist('dl-shift-customer', fieldValues(eqList, 'Заказчик')) +
+      buildDatalist('dl-shift-customer', customerNamesForList(eqList)) +
       (can('shifts.view_all') ? '<h3 style="margin-top:20px;">🗺 Кто сейчас в смене</h3><div id="shifts-map-container"><div class="loading">Загрузка карты...</div></div>' : '');
 
     wireHomeButton();
@@ -1095,14 +1497,26 @@
             targetLat: document.getElementById('f-shiftLat').value,
             targetLon: document.getElementById('f-shiftLon').value
           };
-          return call('startShift', data);
-        }).then(function (res) {
-          if (tg && tg.showAlert) tg.showAlert('Смена начата.\n' + res.matchLabel); else alert('Смена начата. ' + res.matchLabel);
-          return call('getMyOpenShift');
-        }).then(function (shift) {
-          state.openShift = shift;
-          updateShiftButtonUI();
-          renderShiftTab();
+          return submitQueued({ title: 'Начало смены', action: 'startShift', args: [data], files: [] }).then(function (r) {
+            if (r.sent) {
+              var msg = 'Смена начата.\n' + r.result.matchLabel;
+              if (tg && tg.showAlert) tg.showAlert(msg); else alert(msg);
+              return call('getMyOpenShift').then(function (shift) {
+                state.openShift = shift;
+                updateShiftButtonUI();
+                renderShiftTab();
+              });
+            }
+            // Нет связи: смена начата на телефоне, уйдёт на сервер сама. Время начала — по часам телефона.
+            state.openShift = {
+              'Начало (время)': formatLocalStamp(data.clientTimeMs), 'Заказчик': data.customer, 'Адрес': data.address,
+              'Совпадение начала': 'ожидает отправки', 'Широта начала': data.lat, 'Долгота начала': data.lon, _queued: true
+            };
+            updateShiftButtonUI();
+            updateQueueBadge();
+            showToast('📤 Нет связи — начало смены сохранено и отправится автоматически');
+            renderEndShiftView(state.openShift);
+          });
         });
       });
     });
@@ -1354,7 +1768,10 @@
       var data = collectForm(['name', 'qty', 'equipmentId', 'address', 'deliveryDate']);
       if (!data.equipmentId) { showError(new Error('Не удалось определить станок по «Наш номер» — проверьте значение')); return; }
       data.deliveryDate = isoToRuDate(data.deliveryDate);
-      guardedSave(btn, function () { return call('addPart', data).then(renderParts); });
+      guardedSave(btn, function () {
+        return submitQueued({ title: 'Заявка на запчасть «' + (data.name || '') + '»', action: 'addPart', args: [data], files: [] })
+          .then(function (r) { finishSubmit(r, 'Заявка на запчасть', renderParts); });
+      });
     });
   }
 
@@ -1732,6 +2149,9 @@
     else { sessionStartMs = Date.now(); sessionReported = false; } // вернулись в приложение — новый отрезок
   });
   window.addEventListener('pagehide', reportSessionEnd);
+  window.addEventListener('online', backgroundFlush);
+  setInterval(backgroundFlush, 30000);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') backgroundFlush(); });
 
   init();
 })();
