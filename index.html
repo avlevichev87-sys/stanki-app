@@ -883,10 +883,12 @@
           : '') +
         (can('equipment.edit') ? '<button class="btn-primary" id="detail-edit-eq">Редактировать</button>' : '') +
         (can('reports.create') ? '<button class="btn-primary" id="detail-add-report">+ Добавить отчет</button>' : '') +
+        '<h3>История статусов</h3><div id="status-history"><div class="loading">Загрузка...</div></div>' +
         '<h3>История обслуживания (' + reports.length + ')</h3>' +
         '<div class="eq-history">' + (reports.length ? reports.map(renderHistoryEntry).join('') : '<div class="empty">Отчетов пока нет</div>') + '</div>';
 
       content.querySelector('.btn-back').addEventListener('click', renderEquipment);
+      loadStatusHistory(id);
       var editBtn = document.getElementById('detail-edit-eq');
       if (editBtn) editBtn.addEventListener('click', function () { openEquipmentForm(eq); });
       var addBtn = document.getElementById('detail-add-report');
@@ -1556,6 +1558,9 @@
         '<h2 style="margin-top:24px;">📅 Календарь загрузки</h2>' +
         '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Сколько разных сотрудников было в смене в каждый день — для планирования.</div>' +
         '<div id="shift-calendar-container"><div class="loading">Загрузка...</div></div>' +
+        '<h2 style="margin-top:24px;">📈 Статусы станков</h2>' +
+        '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Как станки проходят путь от заявки до сдачи и где задерживаются. Считается по истории смен статуса.</div>' +
+        '<div id="status-analytics-container"><div class="loading">Загрузка...</div></div>' +
         '<h2 style="margin-top:24px;">👥 Сотрудники в смене</h2>' +
         '<div style="font-size:12px;color:var(--hint);margin-bottom:10px;">Показана текущая (если открыта) или последняя завершённая смена каждого сотрудника.</div>' +
         '<div class="list" id="shift-overview-list"><div class="loading">Загрузка...</div></div>' +
@@ -1593,7 +1598,83 @@
       wireHomeButton();
       renderOpenShiftsMap();
       renderShiftCalendar();
+      renderStatusAnalytics();
     }).catch(showError);
+  }
+
+  // ---------- История и аналитика статусов ----------
+  function plural(n, one, few, many) {
+    var a = Math.abs(n) % 100, b = a % 10;
+    if (a > 10 && a < 20) return many;
+    if (b > 1 && b < 5) return few;
+    if (b === 1) return one;
+    return many;
+  }
+
+  function statusPillHtml(name) {
+    if (!name) return '';
+    return '<span class="status-pill small" style="background:' + statusColorFor(name) + '">' + escapeHtml(String(name).toUpperCase()) + '</span>';
+  }
+
+  // История смен статуса одного станка (карточка станка)
+  function statusHistoryHtml(list) {
+    if (!list.length) return '<div class="empty">Изменений статуса пока не записано</div>';
+    return '<div class="card">' + list.map(function (h) {
+      return '<div class="eq-line">' + escapeHtml(h.time) + ': ' + (h.from ? statusPillHtml(h.from) + ' → ' : '') + statusPillHtml(h.to) +
+        '<div style="font-size:12px;color:var(--hint);">' + escapeHtml(h.who || '') + (h.source ? ' · ' + escapeHtml(h.source) : '') + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  function loadStatusHistory(equipmentId) {
+    var box = document.getElementById('status-history');
+    if (!box) return;
+    call('getStatusHistory', equipmentId).then(function (list) {
+      box.innerHTML = statusHistoryHtml(list);
+    }).catch(function () { box.innerHTML = '<div class="empty">Не удалось загрузить историю статусов</div>'; });
+  }
+
+  // Аналитика по всем станкам (вкладка «Статистика»)
+  function statusAnalyticsHtml(d) {
+    var html = '';
+    if (!d.historyRows) {
+      html += '<div class="card"><div class="eq-line" style="color:var(--hint);">История статусов пока пустая — она копится с момента обновления. ' +
+        'Чтобы подтянуть прошлые данные из отчётов, в таблице выполните: «TMA Станки → Восстановить историю статусов из отчётов».</div></div>';
+    }
+    html += '<div class="card"><div class="card-title">Путь «Заявка → Сдан»</div>' +
+      (d.cycle.n
+        ? '<div class="eq-line"><b>В среднем:</b> ' + d.cycle.avgDays + ' дн. (по ' + d.cycle.n + ' ' + plural(d.cycle.n, 'станку', 'станкам', 'станкам') + ')</div>'
+        : '<div class="eq-line" style="color:var(--hint);">Пока нет станков, прошедших весь путь</div>') + '</div>';
+
+    html += '<h3>Где станки задерживаются</h3>' + (d.perStatus.length
+      ? '<div class="card">' + d.perStatus.map(function (s) {
+          return '<div class="eq-line">' + statusPillHtml(s.status) + ' в среднем <b>' + s.avgDays + ' дн.</b> <span style="color:var(--hint);font-size:12px;">(' +
+            s.count + ' ' + plural(s.count, 'переход', 'перехода', 'переходов') + ')</span></div>';
+        }).join('') + '</div>'
+      : '<div class="empty">Пока недостаточно данных</div>');
+
+    html += '<h3>Дольше всего в текущем статусе</h3>' + (d.stuck.length
+      ? '<div class="card">' + d.stuck.map(function (s) {
+          return '<div class="eq-line">' + stationLinkHtml('Наш № ' + (s.ourNumber || s.equipmentId), s.equipmentId) + ' — ' + statusPillHtml(s.status) +
+            ' <b>' + s.days + ' дн.</b>' + (s.estimated ? ' <span title="Точной записи о смене статуса нет — считается по последней известной дате" style="color:var(--hint);">≈</span>' : '') + '</div>';
+        }).join('') + '</div>'
+      : '<div class="empty">Нет станков в работе</div>');
+
+    var problems = function (title, list) {
+      return '<div class="card"><div class="card-title">' + title + '</div>' + (list.length ? list.map(function (p) {
+        return '<div class="eq-line">' + escapeHtml(p.name) + ' — <b>' + p.count + ' ' + plural(p.count, 'раз', 'раза', 'раз') + '</b> на ' +
+          p.stations + ' ' + plural(p.stations, 'станке', 'станках', 'станках') + '</div>';
+      }).join('') : '<div class="eq-line" style="color:var(--hint);">Пока нет заходов в статус «Проблема»</div>') + '</div>';
+    };
+    html += '<h3>Повторные проблемы (заходы в «Проблему»)</h3>' +
+      problems('По заказчикам', d.problemsByCustomer) + problems('По моделям', d.problemsByModel);
+    return html;
+  }
+
+  function renderStatusAnalytics() {
+    var container = document.getElementById('status-analytics-container');
+    if (!container) return;
+    call('getStatusAnalytics').then(function (d) { container.innerHTML = statusAnalyticsHtml(d); })
+      .catch(function (err) { container.innerHTML = '<div class="error">' + escapeHtml(err.message || err) + '</div>'; });
   }
 
   var calendarState = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
